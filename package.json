@@ -1,10 +1,10 @@
 {
   "name": "lumen-gmail-auth",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Lumen Gmail auth server",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
@@ -13,9 +13,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",
     "axios": "^1.15.0",
-    "cheerio": "^1.2.0",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
     "dotenv": "^17.4.1",
-    "express": "^5.2.1",
-    "googleapis": "^171.4.0"
+    "express": "^5.1.0",
+    "googleapis": "^171.0.0"
   }
 }
