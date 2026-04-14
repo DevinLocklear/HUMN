@@ -4,6 +4,7 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const { google } = require("googleapis");
 const { createClient } = require("@supabase/supabase-js");
+const { ImapFlow } = require("imapflow");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -962,9 +963,117 @@ async function refreshAccessTokenIfNeeded(connection) {
     };
   }
 }
+function decodeImapBuffer(value) {
+  if (!value) return "";
+  if (Buffer.isBuffer(value)) return value.toString("utf8");
+  return String(value);
+}
+
+async function parseYahooMessage(messageData, connection) {
+  const envelope = messageData.envelope || {};
+  const from = (envelope.from || [])
+    .map((item) => `${item.name || ""} <${item.address || ""}>`)
+    .join(", ");
+  const subject = envelope.subject || "";
+  const internalDate = messageData.internalDate
+    ? new Date(messageData.internalDate).toISOString()
+    : new Date().toISOString();
+
+  const rawBody = decodeImapBuffer(messageData.source);
+
+  const fakeFullMessage = {
+    internalDate: String(new Date(internalDate).getTime()),
+    payload: {
+      headers: [
+        { name: "Subject", value: subject },
+        { name: "From", value: from },
+      ],
+      body: {
+        data: Buffer.from(rawBody, "utf8")
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/g, ""),
+      },
+    },
+  };
+
+  return parseOrderEmail(fakeFullMessage, connection);
+}
+
+async function checkYahooEmails(connection) {
+  const client = new ImapFlow({
+    host: "imap.mail.yahoo.com",
+    port: 993,
+    secure: true,
+    auth: {
+      user: connection.email,
+      pass: connection.yahoo_app_password,
+    },
+  });
+
+  await client.connect();
+
+  try {
+    const lock = await client.getMailboxLock("INBOX");
+
+    try {
+      const messages = [];
+
+      for await (const msg of client.fetch("1:*", {
+        uid: true,
+        envelope: true,
+        source: true,
+        internalDate: true,
+      })) {
+        messages.push(msg);
+      }
+
+      const recentMessages = messages.slice(-20).reverse();
+      console.log(`Yahoo messages found for ${connection.email}:`, recentMessages.length);
+
+      for (const msg of recentMessages) {
+        const yahooMessageId = `yahoo-${msg.uid}`;
+        const alreadyProcessed = await wasMessageProcessed(connection.id, yahooMessageId);
+
+        if (alreadyProcessed) {
+          continue;
+        }
+
+        const parsedEvent = await parseYahooMessage(msg, connection);
+
+        if (!parsedEvent) {
+          continue;
+        }
+
+        const { data: insertedEvent, error: insertError } = await supabase
+          .from("checkout_events")
+          .insert(parsedEvent)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error("Yahoo event insert error:", insertError.message);
+          continue;
+        }
+
+        console.log(
+          `Yahoo collectible checkout detected: ${insertedEvent.retailer} | ${insertedEvent.product_name}`
+        );
+
+        await sendWebhookForEvent(insertedEvent.group_id, insertedEvent);
+        await markMessageProcessed(connection.id, yahooMessageId);
+      }
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout();
+  }
+}
 
 async function checkEmails() {
-  console.log("Checking emails... IMAGE BUILD ACTIVE");
+  console.log("Checking emails...");
 
   const { data: connections, error: connectionError } = await supabase
     .from("gmail_connections")
@@ -978,6 +1087,16 @@ async function checkEmails() {
 
   for (const connection of connections || []) {
     try {
+      if (connection.provider === "yahoo") {
+        if (!connection.email || !connection.yahoo_app_password) {
+          console.log("Skipping Yahoo connection with missing credentials:", connection.id);
+          continue;
+        }
+
+        await checkYahooEmails(connection);
+        continue;
+      }
+
       const tokens = await refreshAccessTokenIfNeeded(connection);
 
       oauth2Client.setCredentials({
@@ -995,13 +1114,12 @@ async function checkEmails() {
       });
 
       const messages = res.data.messages || [];
-      console.log("Messages found:", messages.length);
+      console.log("Gmail messages found:", messages.length);
 
       for (const msg of messages) {
         const alreadyProcessed = await wasMessageProcessed(connection.id, msg.id);
 
         if (alreadyProcessed) {
-          console.log("Already processed:", msg.id);
           continue;
         }
 
@@ -1012,16 +1130,12 @@ async function checkEmails() {
 
         const labels = full.data.labelIds || [];
         if (labels.includes("SENT")) {
-          console.log("Skipping sent email:", msg.id);
           continue;
         }
-
-        console.log("Inspecting message:", msg.id);
 
         const parsedEvent = await parseOrderEmail(full.data, connection);
 
         if (!parsedEvent) {
-          console.log("No checkout event parsed for:", msg.id);
           continue;
         }
 
@@ -1037,7 +1151,7 @@ async function checkEmails() {
         }
 
         console.log(
-          `Collectible checkout detected: ${insertedEvent.retailer} | ${insertedEvent.product_name}`
+          `Gmail collectible checkout detected: ${insertedEvent.retailer} | ${insertedEvent.product_name}`
         );
 
         await sendWebhookForEvent(insertedEvent.group_id, insertedEvent);

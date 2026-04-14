@@ -1263,7 +1263,7 @@ if (interaction.commandName === "save-yahoo") {
         embeds: [
           buildSuccessEmbed(
             "Gmail Connected",
-            `Connected as: **${connection.google_email}**`
+            `Connected as: **${connection.email || connection.google_email}**`
           ),
         ],
       });
