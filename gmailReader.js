@@ -1071,7 +1071,11 @@ async function parseYahooMessage(messageData, connection) {
     ? new Date(messageData.internalDate).toISOString()
     : new Date().toISOString();
 
-  const rawBody = decodeImapBuffer(messageData.source);
+  const rawSource = decodeImapBuffer(messageData.source);
+
+  // Split raw MIME into headers + body
+  const parts = rawSource.split(/\r?\n\r?\n/);
+  const mimeBody = parts.length > 1 ? parts.slice(1).join("\n\n") : rawSource;
 
   const fakeFullMessage = {
     internalDate: String(new Date(internalDate).getTime()),
@@ -1081,7 +1085,7 @@ async function parseYahooMessage(messageData, connection) {
         { name: "From", value: from },
       ],
       body: {
-        data: Buffer.from(rawBody, "utf8")
+        data: Buffer.from(mimeBody, "utf8")
           .toString("base64")
           .replace(/\+/g, "-")
           .replace(/\//g, "_")
