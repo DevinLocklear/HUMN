@@ -393,11 +393,16 @@ function detectRetailer(fromHeader, subject, bodyText) {
 
 function senderMatchesRetailer(retailer, fromHeader) {
   const sender = String(fromHeader || "").toLowerCase();
-  const allowed = (RETAILER_SENDERS[retailer] || []).map((value) =>
-    String(value).toLowerCase()
+
+  // Extract actual email inside <>
+  const emailMatch = sender.match(/<([^>]+)>/);
+  const cleanEmail = emailMatch ? emailMatch[1] : sender;
+
+  const allowed = (RETAILER_SENDERS[retailer] || []).map((v) =>
+    String(v).toLowerCase()
   );
 
-  return allowed.some((domain) => sender.includes(domain));
+  return allowed.some((domain) => cleanEmail.includes(domain));
 }
 
 function isShippingOrTrackingEmail(retailer, subject, bodyText) {
