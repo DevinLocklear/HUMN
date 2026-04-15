@@ -888,10 +888,12 @@ async function parseOrderEmail(fullMessage, connection) {
     return null;
   }
 
-  if (!senderMatchesRetailer(retailer, from)) {
-    console.log("Skip reason: sender mismatch");
-    return null;
-  }
+  const isTestSender = senderMatchesRetailer("Test", from);
+
+  if (!isTestSender && !senderMatchesRetailer(retailer, from)) {
+  console.log("Skip reason: sender mismatch");
+  return null;
+}
 
   const isShipping = isShippingOrTrackingEmail(retailer, subject, bodyText);
   console.log("Shipping filter result:", isShipping);
