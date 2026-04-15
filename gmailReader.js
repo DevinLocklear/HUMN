@@ -153,6 +153,31 @@ function decodeBase64Url(data) {
   return Buffer.from(base64, "base64").toString("utf8");
 }
 
+function decodeQuotedPrintable(str) {
+  if (!str) return "";
+
+  const cleaned = str.replace(/=\r?\n/g, "");
+  const bytes = [];
+  for (let i = 0; i < cleaned.length; i++) {
+    if (
+      cleaned[i] === "=" &&
+      i + 2 < cleaned.length &&
+      /[A-Fa-f0-9]{2}/.test(cleaned.slice(i + 1, i + 3))
+    ) {
+      bytes.push(parseInt(cleaned.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(cleaned.charCodeAt(i));
+    }
+  }
+
+  try {
+    return Buffer.from(bytes).toString("utf8");
+  } catch {
+    return cleaned;
+  }
+}
+
 function extractHeader(headers, name) {
   return (
     headers?.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ||
@@ -1130,7 +1155,9 @@ async function parseYahooMessage(messageData, connection) {
 
   const rawSource = decodeImapBuffer(messageData.source);
   const parts = rawSource.split(/\r?\n\r?\n/);
-  const mimeBody = parts.length > 1 ? parts.slice(1).join("\n\n") : rawSource;
+  let mimeBody = parts.length > 1 ? parts.slice(1).join("\n\n") : rawSource;
+
+  mimeBody = decodeQuotedPrintable(mimeBody);
 
   const fakeFullMessage = {
     internalDate: String(new Date(internalDate).getTime()),
