@@ -1104,8 +1104,6 @@ async function checkYahooEmails(connection) {
 }
 
 async function checkEmails() {
-  console.log(`Checking emails for ${connections?.length || 0} connected inbox(es)...`);
-
   const { data: connections, error: connectionError } = await supabase
     .from("gmail_connections")
     .select("*")
@@ -1115,6 +1113,8 @@ async function checkEmails() {
     console.error("Connection load error:", connectionError.message);
     return;
   }
+
+  console.log(`Checking emails for ${connections?.length || 0} connected inbox(es)...`);
 
   for (const connection of connections || []) {
     try {
