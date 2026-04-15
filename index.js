@@ -23,7 +23,8 @@ const supabase = createClient(
 );
 
 const GMAIL_AUTH_BASE_URL =
-  process.env.GMAIL_AUTH_BASE_URL || "https://positive-passion-production.up.railway.app";
+  process.env.GMAIL_AUTH_BASE_URL ||
+  "https://positive-passion-production.up.railway.app";
 
 const RANGE_CHOICES = [
   { name: "7 days", value: "7" },
@@ -56,10 +57,17 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName("leave-group")
+    .setDescription("Leave your current group"),
+
+  new SlashCommandBuilder()
     .setName("set-webhook")
     .setDescription("Save the Discord webhook for your group")
     .addStringOption((option) =>
-      option.setName("url").setDescription("Discord webhook URL").setRequired(true)
+      option
+        .setName("url")
+        .setDescription("Discord webhook URL")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -70,25 +78,25 @@ const commands = [
     .setName("connect-yahoo")
     .setDescription("Get Yahoo setup instructions"),
 
-new SlashCommandBuilder()
-  .setName("save-yahoo")
-  .setDescription("Save your Yahoo email and app password")
-  .addStringOption((option) =>
-    option
-      .setName("email")
-      .setDescription("Your Yahoo email")
-      .setRequired(true)
-  )
-  .addStringOption((option) =>
-    option
-      .setName("app_password")
-      .setDescription("Yahoo app password")
-      .setRequired(true)
-  ),
+  new SlashCommandBuilder()
+    .setName("save-yahoo")
+    .setDescription("Save your Yahoo email and app password")
+    .addStringOption((option) =>
+      option
+        .setName("email")
+        .setDescription("Your Yahoo email")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("app_password")
+        .setDescription("Yahoo app password")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("status")
-    .setDescription("Check your Gmail connection status"),
+    .setDescription("Check your email connection status"),
 
   new SlashCommandBuilder()
     .setName("test-event")
@@ -262,7 +270,11 @@ function normalizeRetailerFilter(value) {
   if (!trimmed || trimmed.toLowerCase() === "all") return null;
 
   const lower = trimmed.toLowerCase();
-  if (lower === "pokemon" || lower === "pokemoncenter" || lower === "pokemon center") {
+  if (
+    lower === "pokemon" ||
+    lower === "pokemoncenter" ||
+    lower === "pokemon center"
+  ) {
     return "Pokemon Center";
   }
   if (lower === "target") return "Target";
@@ -432,7 +444,6 @@ async function buildCheckoutEmbed(event, discordUserId) {
     discordUserId
   );
 
-
   const embed = new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle(`Successful Checkout | ${event.retailer || "Unknown Retailer"}`)
@@ -445,7 +456,10 @@ async function buildCheckoutEmbed(event, discordUserId) {
       {
         name: "Product",
         value: event.product_url
-          ? `[${shortenText(event.product_name || "Unknown Product", 120)}](${event.product_url})`
+          ? `[${shortenText(
+              event.product_name || "Unknown Product",
+              120
+            )}](${event.product_url})`
           : `${shortenText(event.product_name || "Unknown Product", 120)}`,
         inline: false,
       },
@@ -480,7 +494,10 @@ async function buildCheckoutEmbed(event, discordUserId) {
       iconURL: "https://cdn-icons-png.flaticon.com/512/4712/4712027.png",
     });
 
-  if (event.product_image && !String(event.product_image).includes("example")) {
+  if (
+    event.product_image &&
+    !String(event.product_image).includes("example")
+  ) {
     embed.setThumbnail(event.product_image);
   }
 
@@ -546,7 +563,7 @@ function buildHelpEmbedForGuest() {
       {
         name: "Main Commands",
         value:
-          "`/create-group`\n`/join`\n`/setup`\n`/connect-gmail`\n`/status`",
+          "`/create-group`\n`/join`\n`/setup`\n`/connect-gmail`\n`/connect-yahoo`\n`/status`",
         inline: false,
       },
     ],
@@ -561,7 +578,7 @@ function buildHelpEmbedForMember() {
       {
         name: "Setup",
         value:
-          "`/setup` — full setup check\n`/connect-gmail` — connect your Gmail\n`/status` — see your Gmail status",
+          "`/setup` — full setup check\n`/connect-gmail` — connect Gmail\n`/connect-yahoo` — connect Yahoo\n`/status` — see your email status\n`/leave-group` — leave your current group",
         inline: false,
       },
       {
@@ -588,7 +605,7 @@ function buildHelpEmbedForOwner() {
       {
         name: "Setup",
         value:
-          "`/setup` — full setup check\n`/set-webhook url:...` — connect your Discord webhook\n`/connect-gmail` — connect Gmail\n`/status` — check Gmail status",
+          "`/setup` — full setup check\n`/set-webhook url:...` — connect your Discord webhook\n`/connect-gmail` — connect Gmail\n`/connect-yahoo` — connect Yahoo\n`/status` — check email status",
         inline: false,
       },
       {
@@ -641,7 +658,12 @@ async function sendWebhookEmbed(webhookUrl, embed) {
   return response;
 }
 
-async function getFilteredEvents(groupId, rangeValue, retailerFilter, limit = null) {
+async function getFilteredEvents(
+  groupId,
+  rangeValue,
+  retailerFilter,
+  limit = null
+) {
   let query = supabase
     .from("checkout_events")
     .select("*")
@@ -768,33 +790,38 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      const { data: gmailConnection, error: gmailError } = await supabase
+      const { data: emailConnection, error: emailError } = await supabase
         .from("gmail_connections")
         .select("*")
         .eq("discord_user_id", discordUserId)
         .maybeSingle();
 
-      if (gmailError) {
-        console.error(gmailError);
+      if (emailError) {
+        console.error(emailError);
         return interaction.editReply({
-          embeds: [buildErrorEmbed("Failed to load Gmail setup.")],
+          embeds: [buildErrorEmbed("Failed to load email setup.")],
         });
       }
 
       const hasWebhook = Boolean(group?.discord_webhook_url);
-      const hasGmail = Boolean(gmailConnection?.google_email);
+      const hasEmail = Boolean(emailConnection?.email || emailConnection?.google_email);
       const isOwner = membership.role === "owner";
 
       let nextSteps = [];
       if (!hasWebhook && isOwner) {
         nextSteps.push("Run `/set-webhook url:YOUR_WEBHOOK_URL`");
       }
-      if (!hasGmail) {
-        nextSteps.push("Run `/connect-gmail`");
+      if (!hasEmail) {
+        nextSteps.push("Run `/connect-gmail` or `/connect-yahoo`");
       }
       if (!nextSteps.length) {
         nextSteps.push("Everything looks good. You're ready to use Lumen.");
       }
+
+      const providerLabel = emailConnection?.provider
+        ? emailConnection.provider.charAt(0).toUpperCase() +
+          emailConnection.provider.slice(1)
+        : null;
 
       const embed = buildAnalyticsEmbed({
         title: "🛠️ Lumen Setup",
@@ -816,9 +843,11 @@ client.on("interactionCreate", async (interaction) => {
             inline: true,
           },
           {
-            name: "Your Gmail",
-            value: hasGmail
-              ? `✅ ${gmailConnection.google_email}`
+            name: "Your Email",
+            value: hasEmail
+              ? `✅ ${emailConnection.email || emailConnection.google_email}${
+                  providerLabel ? ` (${providerLabel})` : ""
+                }`
               : "❌ Not connected",
             inline: false,
           },
@@ -862,6 +891,30 @@ client.on("interactionCreate", async (interaction) => {
       if (existingGroup) {
         return interaction.editReply({
           embeds: [buildErrorEmbed("You already own a group.")],
+        });
+      }
+
+      const { data: existingMembership, error: membershipCheckError } =
+        await supabase
+          .from("group_members")
+          .select("*")
+          .eq("discord_user_id", discordUserId)
+          .maybeSingle();
+
+      if (membershipCheckError) {
+        console.error(membershipCheckError);
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("Failed to check existing membership.")],
+        });
+      }
+
+      if (existingMembership) {
+        return interaction.editReply({
+          embeds: [
+            buildErrorEmbed(
+              "You are already in a group. Leave your current group before creating a new one."
+            ),
+          ],
         });
       }
 
@@ -948,7 +1001,6 @@ client.on("interactionCreate", async (interaction) => {
       const { data: existingMembership, error: membershipError } = await supabase
         .from("group_members")
         .select("*")
-        .eq("group_id", group.id)
         .eq("discord_user_id", discordUserId)
         .maybeSingle();
 
@@ -961,7 +1013,11 @@ client.on("interactionCreate", async (interaction) => {
 
       if (existingMembership) {
         return interaction.editReply({
-          embeds: [buildErrorEmbed("You are already in this group.")],
+          embeds: [
+            buildErrorEmbed(
+              "You are already in a group. Leave your current group before joining another."
+            ),
+          ],
         });
       }
 
@@ -992,6 +1048,71 @@ client.on("interactionCreate", async (interaction) => {
       console.error(err);
       return interaction.editReply({
         embeds: [buildErrorEmbed("Error joining group.")],
+      });
+    }
+  }
+
+  if (interaction.commandName === "leave-group") {
+    await interaction.deferReply({ ephemeral: true });
+
+    const discordUserId = interaction.user.id;
+
+    try {
+      const { data: membership, error: membershipError } =
+        await getMembershipByDiscordUserId(discordUserId);
+
+      if (membershipError) {
+        console.error(membershipError);
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("Failed to find your group.")],
+        });
+      }
+
+      if (!membership) {
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("You are not in a group.")],
+        });
+      }
+
+      if (membership.role === "owner") {
+        return interaction.editReply({
+          embeds: [
+            buildErrorEmbed(
+              "Group owners cannot leave their group. Transfer ownership or delete the group first."
+            ),
+          ],
+        });
+      }
+
+      const { error: deleteMembershipError } = await supabase
+        .from("group_members")
+        .delete()
+        .eq("discord_user_id", discordUserId);
+
+      if (deleteMembershipError) {
+        console.error(deleteMembershipError);
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("Failed to leave group.")],
+        });
+      }
+
+      await supabase
+        .from("gmail_connections")
+        .delete()
+        .eq("discord_user_id", discordUserId);
+
+      return interaction.editReply({
+        embeds: [
+          buildSuccessEmbed(
+            "Left Group",
+            "You have successfully left the group and your email connection was removed."
+          ),
+        ],
+      });
+    } catch (err) {
+      console.error(err);
+      return interaction.editReply({
+        embeds: [buildErrorEmbed("Error leaving group.")],
       });
     }
   }
@@ -1082,7 +1203,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-      if (interaction.commandName === "connect-gmail") {
+  if (interaction.commandName === "connect-gmail") {
     await interaction.deferReply({ ephemeral: true });
 
     const discordUserId = interaction.user.id;
@@ -1118,85 +1239,85 @@ client.on("interactionCreate", async (interaction) => {
         ],
       });
     } catch (err) {
-  console.error(err);
-  return interaction.editReply({
-    embeds: [buildErrorEmbed("Failed to generate Gmail connection link.")],
-      });
-    }
-    }
-
-if (interaction.commandName === "connect-yahoo") {
-  await interaction.deferReply({ ephemeral: true });
-    
-  return interaction.editReply({
-    content:
-      "Connect Yahoo\n\n" +
-      "1. Go here: https://login.yahoo.com/account/security\n" +
-      "2. Click 'Generate App Password'\n" +
-      "3. Select 'Other App' → type 'Lumen'\n" +
-      "4. Copy the password\n" +
-      "5. Run /save-yahoo email:your@yahoo.com app_password:YOUR_PASSWORD",
-  });
-} 
-
-if (interaction.commandName === "save-yahoo") {
-  await interaction.deferReply({ ephemeral: true });
-
-  const discordUserId = interaction.user.id;
-  const email = interaction.options.getString("email").trim().toLowerCase();
-  const appPassword = interaction.options.getString("app_password").trim();
-
-  try {
-    const { data: membership, error: membershipError } =
-      await getMembershipByDiscordUserId(discordUserId);
-
-    if (membershipError) {
-      console.error(membershipError);
+      console.error(err);
       return interaction.editReply({
-        embeds: [buildErrorEmbed("Failed to find your membership.")],
+        embeds: [buildErrorEmbed("Failed to generate Gmail connection link.")],
       });
     }
+  }
 
-    if (!membership) {
+  if (interaction.commandName === "connect-yahoo") {
+    await interaction.deferReply({ ephemeral: true });
+
+    return interaction.editReply({
+      content:
+        "Connect Yahoo\n\n" +
+        "1. Go here: https://login.yahoo.com/account/security\n" +
+        "2. Click 'Generate App Password'\n" +
+        "3. Select 'Other App' → type 'Lumen'\n" +
+        "4. Copy the password\n" +
+        "5. Run /save-yahoo email:your@yahoo.com app_password:YOUR_PASSWORD",
+    });
+  }
+
+  if (interaction.commandName === "save-yahoo") {
+    await interaction.deferReply({ ephemeral: true });
+
+    const discordUserId = interaction.user.id;
+    const email = interaction.options.getString("email").trim().toLowerCase();
+    const appPassword = interaction.options.getString("app_password").trim();
+
+    try {
+      const { data: membership, error: membershipError } =
+        await getMembershipByDiscordUserId(discordUserId);
+
+      if (membershipError) {
+        console.error(membershipError);
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("Failed to find your membership.")],
+        });
+      }
+
+      if (!membership) {
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("You are not in a group.")],
+        });
+      }
+
+      const payload = {
+        group_id: membership.group_id,
+        discord_user_id: discordUserId,
+        email,
+        google_email: email,
+        status: "connected",
+        provider: "yahoo",
+        yahoo_app_password: appPassword,
+        created_at: new Date().toISOString(),
+      };
+
+      const { error: upsertError } = await supabase
+        .from("gmail_connections")
+        .upsert(payload, {
+          onConflict: "group_id,discord_user_id,email",
+        });
+
+      if (upsertError) {
+        console.error("Yahoo save error:", upsertError);
+        return interaction.editReply({
+          embeds: [buildErrorEmbed("Failed to save Yahoo connection.")],
+        });
+      }
+
       return interaction.editReply({
-        embeds: [buildErrorEmbed("You are not in a group.")],
+        content: `✅ Yahoo connected for ${email}`,
       });
-    }
-
-    const payload = {
-      group_id: membership.group_id,
-      discord_user_id: discordUserId,
-      email,
-      google_email: email,
-      status: "connected",
-      provider: "yahoo",
-      yahoo_app_password: appPassword,
-      created_at: new Date().toISOString(),
-    };
-
-    const { error: upsertError } = await supabase
-      .from("gmail_connections")
-      .upsert(payload, {
-        onConflict: "group_id,discord_user_id,email",
-      });
-
-    if (upsertError) {
-      console.error("Yahoo save error:", upsertError);
+    } catch (err) {
+      console.error(err);
       return interaction.editReply({
         embeds: [buildErrorEmbed("Failed to save Yahoo connection.")],
       });
     }
-
-    return interaction.editReply({
-      content: `✅ Yahoo connected for ${email}`,
-    });
-  } catch (err) {
-    console.error(err);
-    return interaction.editReply({
-      embeds: [buildErrorEmbed("Failed to save Yahoo connection.")],
-    });
   }
-}
 
   if (interaction.commandName === "status") {
     await interaction.deferReply({ ephemeral: true });
@@ -1213,20 +1334,25 @@ if (interaction.commandName === "save-yahoo") {
       if (error) {
         console.error(error);
         return interaction.editReply({
-          embeds: [buildErrorEmbed("Failed to check Gmail status.")],
+          embeds: [buildErrorEmbed("Failed to check email status.")],
         });
       }
 
       if (!connection) {
         return interaction.editReply({
-          embeds: [buildErrorEmbed("No Gmail account connected yet.")],
+          embeds: [buildErrorEmbed("No email account connected yet.")],
         });
       }
+
+      const providerLabel = connection.provider
+        ? connection.provider.charAt(0).toUpperCase() +
+          connection.provider.slice(1)
+        : "Email";
 
       return interaction.editReply({
         embeds: [
           buildSuccessEmbed(
-            "Gmail Connected",
+            `${providerLabel} Connected`,
             `Connected as: **${connection.email || connection.google_email}**`
           ),
         ],
@@ -1426,14 +1552,34 @@ if (interaction.commandName === "save-yahoo") {
           retailerFilter ? ` • Retailer: ${retailerFilter}` : ""
         }`,
         fields: [
-          { name: "Total Checkouts", value: String(totalCheckouts), inline: true },
-          { name: "Members", value: String(memberCount || 0), inline: true },
+          {
+            name: "Total Checkouts",
+            value: String(totalCheckouts),
+            inline: true,
+          },
+          {
+            name: "Members",
+            value: String(memberCount || 0),
+            inline: true,
+          },
           { name: "Unique Users", value: String(uniqueUsers), inline: true },
           { name: "Total Spend", value: formatMoney(totalSpend), inline: true },
-          { name: "Average Order Value", value: formatMoney(avgValue), inline: true },
+          {
+            name: "Average Order Value",
+            value: formatMoney(avgValue),
+            inline: true,
+          },
           { name: "Top Retailer", value: topRetailer, inline: true },
-          { name: "Top User", value: topUserId ? `<@${topUserId}>` : "None", inline: true },
-          { name: "Retailer Breakdown", value: retailerBreakdownText, inline: false },
+          {
+            name: "Top User",
+            value: topUserId ? `<@${topUserId}>` : "None",
+            inline: true,
+          },
+          {
+            name: "Retailer Breakdown",
+            value: retailerBreakdownText,
+            inline: false,
+          },
           {
             name: "Latest Event",
             value: latestEvent
@@ -1529,7 +1675,9 @@ if (interaction.commandName === "save-yahoo") {
           : "No data yet.";
 
       const embed = buildAnalyticsEmbed({
-        title: `🏆 ${interaction.guild?.name || "Group"} Leaderboard (${formatRangeLabel(range)})`,
+        title: `🏆 ${interaction.guild?.name || "Group"} Leaderboard (${formatRangeLabel(
+          range
+        )})`,
         description: retailerFilter
           ? `${description}\n\n**Retailer Filter:** ${retailerFilter}`
           : description,
@@ -1596,8 +1744,13 @@ if (interaction.commandName === "save-yahoo") {
           ? events
               .map(
                 (event, index) =>
-                  `**#${index + 1}** ${event.retailer} • ${shortenText(event.product_name, 75)}\n` +
-                  `${formatMoney(event.order_total)} • Qty ${event.quantity || 1} • <@${event.discord_user_id}> • ${formatDateTime(
+                  `**#${index + 1}** ${event.retailer} • ${shortenText(
+                    event.product_name,
+                    75
+                  )}\n` +
+                  `${formatMoney(event.order_total)} • Qty ${
+                    event.quantity || 1
+                  } • <@${event.discord_user_id}> • ${formatDateTime(
                     event.created_at
                   )}`
               )
@@ -1655,12 +1808,13 @@ if (interaction.commandName === "save-yahoo") {
         });
       }
 
-      const { data: targetMembership, error: targetMembershipError } = await supabase
-        .from("group_members")
-        .select("group_id")
-        .eq("group_id", membership.group_id)
-        .eq("discord_user_id", targetUserId)
-        .maybeSingle();
+      const { data: targetMembership, error: targetMembershipError } =
+        await supabase
+          .from("group_members")
+          .select("group_id")
+          .eq("group_id", membership.group_id)
+          .eq("discord_user_id", targetUserId)
+          .maybeSingle();
 
       if (targetMembershipError) {
         console.error(targetMembershipError);
@@ -1704,7 +1858,8 @@ if (interaction.commandName === "save-yahoo") {
       }
 
       const favoriteRetailer =
-        Object.entries(retailerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "None";
+        Object.entries(retailerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+        "None";
 
       const retailerBreakdownText =
         Object.entries(retailerCounts)
@@ -1720,20 +1875,36 @@ if (interaction.commandName === "save-yahoo") {
         }`,
         fields: [
           { name: "User", value: `<@${targetUserId}>`, inline: true },
-          { name: "Total Checkouts", value: String(totalCheckouts), inline: true },
-          { name: "Favorite Retailer", value: favoriteRetailer, inline: true },
+          {
+            name: "Total Checkouts",
+            value: String(totalCheckouts),
+            inline: true,
+          },
+          {
+            name: "Favorite Retailer",
+            value: favoriteRetailer,
+            inline: true,
+          },
           { name: "Total Spend", value: formatMoney(totalSpend), inline: true },
-          { name: "Average Order Value", value: formatMoney(avgValue), inline: true },
-          { name: "Retailer Breakdown", value: retailerBreakdownText, inline: false },
+          {
+            name: "Average Order Value",
+            value: formatMoney(avgValue),
+            inline: true,
+          },
+          {
+            name: "Retailer Breakdown",
+            value: retailerBreakdownText,
+            inline: false,
+          },
           {
             name: "Latest Checkout",
             value: latestEvent
               ? `${latestEvent.retailer} • ${shortenText(
                   latestEvent.product_name,
                   80
-                )} • ${formatMoney(latestEvent.order_total)} • ${formatDateTime(
-                  latestEvent.created_at
-                )}`
+                )} • ${formatMoney(
+                  latestEvent.order_total
+                )} • ${formatDateTime(latestEvent.created_at)}`
               : "No events found for this user",
             inline: false,
           },
@@ -1875,7 +2046,9 @@ if (interaction.commandName === "save-yahoo") {
               .slice(-10)
               .map(
                 ([date, stats]) =>
-                  `${date}: ${stats.count} checkouts • ${formatMoney(stats.spend)}`
+                  `${date}: ${stats.count} checkouts • ${formatMoney(
+                    stats.spend
+                  )}`
               )
               .join("\n")
           : "No daily trend data";
@@ -1911,6 +2084,7 @@ if (interaction.commandName === "save-yahoo") {
     }
   }
 });
+
 (async () => {
   await registerCommands();
   await client.login(process.env.DISCORD_TOKEN);
