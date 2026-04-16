@@ -11,6 +11,25 @@ const {
 } = require("discord.js");
 const { createClient } = require("@supabase/supabase-js");
 
+const DEBUG = process.env.DEBUG === "true";
+const ENABLE_TEST_EVENT = process.env.ENABLE_TEST_EVENT === "true";
+
+function debugLog(...args) {
+  if (DEBUG) console.log(...args);
+}
+
+function normalizeRetailerName(retailer) {
+  const value = String(retailer || "").trim().toLowerCase();
+
+  if (value === "pokemoncenter" || value === "pokemon center") {
+    return "Pokemon Center";
+  }
+  if (value === "target") return "Target";
+  if (value === "walmart") return "Walmart";
+
+  return retailer || "Unknown Retailer";
+}
+
 console.log("BOT STARTING...");
 
 const client = new Client({
@@ -223,7 +242,7 @@ const commands = [
 console.log("TOKEN:", process.env.DISCORD_TOKEN ? "Loaded ✅" : "Missing ❌");
 console.log("SUPABASE URL:", process.env.SUPABASE_URL ? "Loaded ✅" : "Missing ❌");
 console.log("APP ID:", process.env.APPLICATION_ID ? "Loaded ✅" : "Missing ❌");
-console.log("COMMANDS TO REGISTER:", commands.map((c) => c.name));
+debugLog("COMMANDS TO REGISTER:", commands.map((c) => c.name));
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 
@@ -235,7 +254,7 @@ async function registerCommands() {
       body: [],
     });
 
-    console.log("Old commands cleared.");
+    debugLog("Old commands cleared.");
 
     await rest.put(Routes.applicationCommands(process.env.APPLICATION_ID), {
       body: commands,
@@ -318,7 +337,7 @@ function buildRetailerBreakdown(events = []) {
   const counts = {};
 
   for (const event of events) {
-    const retailer = event.retailer || "Unknown";
+    const retailer = normalizeRetailerName(event.retailer);
     counts[retailer] = (counts[retailer] || 0) + 1;
   }
 
@@ -339,7 +358,7 @@ function buildTopProducts(events = []) {
     if (!productStats[key]) {
       productStats[key] = {
         product_name: event.product_name || "Unknown Product",
-        retailer: event.retailer || "Unknown",
+        retailer: normalizeRetailerName(event.retailer),
         count: 0,
         spend: 0,
         quantity: 0,
@@ -459,7 +478,10 @@ function renderStatsDashboard({
     "─".repeat(30),
     "LATEST EVENT",
     latestEvent
-      ? `${latestEvent.retailer} | ${shortenText(latestEvent.product_name, 32)}`
+      ? `${normalizeRetailerName(latestEvent.retailer)} | ${shortenText(
+          latestEvent.product_name,
+          32
+        )}`
       : "No events yet",
     latestEvent ? `${formatMoney(latestEvent.order_total)}` : "",
     "```",
@@ -489,7 +511,10 @@ function renderTrendDashboard(dailyTrend = [], weekdayBreakdown = []) {
   const weekdayRows = weekdayBreakdown.length
     ? weekdayBreakdown
         .filter(([, count]) => count > 0)
-        .map(([day, count]) => `${padRight(day.slice(0, 3), 4)} ${padLeft(count, 4)}`)
+        .map(
+          ([day, count]) =>
+            `${padRight(day.slice(0, 3), 4)} ${padLeft(count, 4)}`
+        )
     : ["No weekday activity"];
 
   const lines = [
@@ -554,7 +579,9 @@ async function buildCheckoutEmbed(event, discordUserId) {
 
   const embed = new EmbedBuilder()
     .setColor(0x57f287)
-    .setTitle(`Successful Checkout | ${event.retailer || "Unknown Retailer"}`)
+    .setTitle(
+      `Successful Checkout | ${normalizeRetailerName(event.retailer)}`
+    )
     .addFields(
       {
         name: "User",
@@ -752,18 +779,38 @@ async function getGroupById(groupId) {
   return { data, error };
 }
 
-async function sendWebhookEmbed(webhookUrl, embed) {
-  const response = await fetch(webhookUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      embeds: [embed.toJSON()],
-    }),
-  });
+async function sendWebhookWithRetry(url, payload, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-  return response;
+      if (response.ok) return response;
+
+      console.error(
+        `Webhook attempt ${i + 1} failed:`,
+        response.status,
+        response.statusText
+      );
+    } catch (err) {
+      console.error(`Webhook attempt ${i + 1} error:`, err.message);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
+  }
+
+  return null;
+}
+
+async function sendWebhookEmbed(webhookUrl, embed) {
+  return sendWebhookWithRetry(webhookUrl, {
+    embeds: [embed.toJSON()],
+  });
 }
 
 async function getFilteredEvents(
@@ -801,6 +848,14 @@ function requireOwner(interaction, membership) {
     return true;
   }
   return false;
+}
+
+function isValidYahooEmail(email) {
+  return /^[^\s@]+@yahoo\.com$/i.test(email);
+}
+
+function isReasonableYahooAppPassword(value) {
+  return typeof value === "string" && value.trim().length >= 8;
 }
 
 client.once("clientReady", () => {
@@ -917,7 +972,7 @@ client.on("interactionCreate", async (interaction) => {
       );
       const isOwner = membership.role === "owner";
 
-      let nextSteps = [];
+      const nextSteps = [];
       if (!hasWebhook && isOwner) {
         nextSteps.push("Run `/set-webhook url:YOUR_WEBHOOK_URL`");
       }
@@ -1378,6 +1433,18 @@ client.on("interactionCreate", async (interaction) => {
     const email = interaction.options.getString("email").trim().toLowerCase();
     const appPassword = interaction.options.getString("app_password").trim();
 
+    if (!isValidYahooEmail(email)) {
+      return interaction.editReply({
+        embeds: [buildErrorEmbed("Please enter a valid Yahoo email address.")],
+      });
+    }
+
+    if (!isReasonableYahooAppPassword(appPassword)) {
+      return interaction.editReply({
+        embeds: [buildErrorEmbed("Please enter a valid Yahoo app password.")],
+      });
+    }
+
     try {
       const { data: membership, error: membershipError } =
         await getMembershipByDiscordUserId(discordUserId);
@@ -1479,6 +1546,14 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.commandName === "test-event") {
     await interaction.deferReply({ ephemeral: true });
 
+    if (!ENABLE_TEST_EVENT) {
+      return interaction.editReply({
+        embeds: [
+          buildErrorEmbed("Test events are disabled in this environment."),
+        ],
+      });
+    }
+
     const discordUserId = interaction.user.id;
 
     try {
@@ -1552,7 +1627,7 @@ client.on("interactionCreate", async (interaction) => {
         embed
       );
 
-      if (!webhookResponse.ok) {
+      if (!webhookResponse) {
         return interaction.editReply({
           embeds: [buildErrorEmbed("Failed to send test event to webhook.")],
         });
@@ -1635,7 +1710,7 @@ client.on("interactionCreate", async (interaction) => {
       const userCounts = {};
 
       for (const event of events || []) {
-        const retailer = event.retailer || "Unknown";
+        const retailer = normalizeRetailerName(event.retailer);
         retailerCounts[retailer] = (retailerCounts[retailer] || 0) + 1;
         userCounts[event.discord_user_id] =
           (userCounts[event.discord_user_id] || 0) + 1;
@@ -1834,7 +1909,7 @@ client.on("interactionCreate", async (interaction) => {
           ? events
               .map(
                 (event, index) =>
-                  `**#${index + 1}** ${event.retailer} • ${shortenText(
+                  `**#${index + 1}** ${normalizeRetailerName(event.retailer)} • ${shortenText(
                     event.product_name,
                     75
                   )}\n` +
@@ -1943,7 +2018,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const retailerCounts = {};
       for (const event of userEvents) {
-        const retailer = event.retailer || "Unknown";
+        const retailer = normalizeRetailerName(event.retailer);
         retailerCounts[retailer] = (retailerCounts[retailer] || 0) + 1;
       }
 
@@ -1989,7 +2064,7 @@ client.on("interactionCreate", async (interaction) => {
           {
             name: "Latest Checkout",
             value: latestEvent
-              ? `${latestEvent.retailer} • ${shortenText(
+              ? `${normalizeRetailerName(latestEvent.retailer)} • ${shortenText(
                   latestEvent.product_name,
                   80
                 )} • ${formatMoney(
@@ -2163,6 +2238,6 @@ client.on("interactionCreate", async (interaction) => {
   await client.login(process.env.DISCORD_TOKEN);
 
   setInterval(() => {
-    console.log("Heartbeat: bot alive");
+    debugLog("Heartbeat: bot alive");
   }, 60000);
 })();
