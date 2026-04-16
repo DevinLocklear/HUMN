@@ -17,11 +17,32 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_REDIRECT_URI
 );
 
+const DEBUG = process.env.DEBUG === "true";
+const ENABLE_TEST_SENDERS = process.env.ENABLE_TEST_SENDERS === "true";
+
+function debugLog(...args) {
+  if (DEBUG) console.log(...args);
+}
+
+function normalizeRetailerName(retailer) {
+  const value = String(retailer || "").trim().toLowerCase();
+
+  if (value === "pokemoncenter" || value === "pokemon center") {
+    return "Pokemon Center";
+  }
+  if (value === "target") return "Target";
+  if (value === "walmart") return "Walmart";
+
+  return retailer || "Unknown Retailer";
+}
+
 const RETAILER_SENDERS = {
   Target: ["target.com", "oe1.target.com", "oe.target.com"],
   Walmart: ["walmart.com", "ib.transaction.walmart.com"],
   PokemonCenter: ["em.pokemon.com", "pokemon.com"],
-  Test: ["lensoflock@gmail.com", "babylock23@gmail.com"],
+  ...(ENABLE_TEST_SENDERS
+    ? { Test: ["lensoflock@gmail.com", "babylock23@gmail.com"] }
+    : {}),
 };
 
 const COLLECTIBLE_KEYWORDS = [
@@ -158,6 +179,7 @@ function decodeQuotedPrintable(str) {
 
   const cleaned = str.replace(/=\r?\n/g, "");
   const bytes = [];
+
   for (let i = 0; i < cleaned.length; i++) {
     if (
       cleaned[i] === "=" &&
@@ -380,7 +402,7 @@ async function fetchProductMeta(url) {
 
     return { image, title };
   } catch (err) {
-    console.log("Meta fetch failed:", err.message);
+    console.error("Meta fetch failed:", err.message);
     return {};
   }
 }
@@ -581,10 +603,54 @@ function looksCollectibleRelated(productName, bodyText) {
   return hasCollectibleSignal && !hasBlockedSignal;
 }
 
-function buildCheckoutEmbed(event) {
+async function getUserRankAndSpend(groupId, discordUserId) {
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+
+  const { data: events, error } = await supabase
+    .from("checkout_events")
+    .select("discord_user_id, order_total")
+    .eq("group_id", groupId)
+    .gte("created_at", since.toISOString());
+
+  if (error || !events) {
+    console.error("Rank calc error:", error);
+    return { rank: null, spend: 0 };
+  }
+
+  const userTotals = {};
+
+  for (const event of events) {
+    const id = event.discord_user_id;
+    userTotals[id] = (userTotals[id] || 0) + Number(event.order_total || 0);
+  }
+
+  const sorted = Object.entries(userTotals).sort((a, b) => b[1] - a[1]);
+
+  let rank = null;
+  let spend = 0;
+
+  sorted.forEach(([id, total], index) => {
+    if (id === discordUserId) {
+      rank = index + 1;
+      spend = total;
+    }
+  });
+
+  return { rank, spend };
+}
+
+async function buildCheckoutEmbed(event) {
+  const { rank, spend } = await getUserRankAndSpend(
+    event.group_id,
+    event.discord_user_id
+  );
+
+  const retailerLabel = normalizeRetailerName(event.retailer);
+
   const embed = {
     color: 0x57f287,
-    title: `Successful Checkout | ${event.retailer || "Unknown Retailer"}`,
+    title: `Successful Checkout | ${retailerLabel}`,
     fields: [
       {
         name: "Product",
@@ -596,7 +662,12 @@ function buildCheckoutEmbed(event) {
       {
         name: "Price",
         value: formatMoney(event.order_total),
-        inline: false,
+        inline: true,
+      },
+      {
+        name: "Quantity",
+        value: String(event.quantity || 1),
+        inline: true,
       },
       {
         name: "Checkout Time",
@@ -607,6 +678,16 @@ function buildCheckoutEmbed(event) {
         name: "User",
         value: `<@${event.discord_user_id}>`,
         inline: false,
+      },
+      {
+        name: "🏆 Rank (30d)",
+        value: rank ? `#${rank}` : "N/A",
+        inline: true,
+      },
+      {
+        name: "💰 Spend (30d)",
+        value: formatMoney(spend || 0),
+        inline: true,
       },
     ],
     footer: {
@@ -620,6 +701,32 @@ function buildCheckoutEmbed(event) {
   }
 
   return embed;
+}
+
+async function sendWebhookWithRetry(url, payload, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) return true;
+
+      console.error(
+        `Webhook attempt ${i + 1} failed:`,
+        res.status,
+        res.statusText
+      );
+    } catch (err) {
+      console.error(`Webhook attempt ${i + 1} error:`, err.message);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
+  }
+
+  return false;
 }
 
 async function sendWebhookForEvent(groupId, event) {
@@ -639,21 +746,22 @@ async function sendWebhookForEvent(groupId, event) {
     return;
   }
 
-  const embed = buildCheckoutEmbed(event);
+  const embed = await buildCheckoutEmbed(event);
 
-  const response = await fetch(group.discord_webhook_url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ embeds: [embed] }),
+  const success = await sendWebhookWithRetry(group.discord_webhook_url, {
+    embeds: [embed],
   });
 
-  if (!response.ok) {
-    console.error("Webhook send failed:", response.status, response.statusText);
-  } else {
-    console.log(
-      `Webhook sent for event: ${event.retailer} | ${event.product_name}`
+  if (!success) {
+    console.error(
+      `Webhook failed after retries for event: ${event.retailer} | ${event.product_name}`
     );
+    return;
   }
+
+  console.log(
+    `Webhook sent for event: ${event.retailer} | ${event.product_name}`
+  );
 }
 
 async function wasMessageProcessed(gmailConnectionId, gmailMessageId) {
@@ -695,7 +803,7 @@ async function enrichProductMeta(retailer, productName, productUrl) {
   let finalUrl = productUrl || null;
   let finalImage = null;
 
-  if (retailer === "Target" && finalUrl) {
+  if (retailer === "Target") {
     finalUrl = cleanTargetUrl(finalUrl);
   }
 
@@ -721,8 +829,8 @@ async function enrichProductMeta(retailer, productName, productUrl) {
 async function parseTargetEmail(bodyText, connection, internalDate, rawBody) {
   const lines = bodyText.split("\n").map(cleanCandidateLine).filter(Boolean);
 
-  console.log("Target parser running...");
-  console.log("Target lines preview:", lines.slice(0, 25));
+  debugLog("Target parser running...");
+  debugLog("Target lines preview:", lines.slice(0, 25));
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -818,7 +926,7 @@ async function parseTargetEmail(bodyText, connection, internalDate, rawBody) {
     };
   }
 
-  console.log("Target parser failed.");
+  debugLog("Target parser failed.");
   return null;
 }
 
@@ -880,8 +988,8 @@ async function parsePokemonCenterEmail(
 ) {
   const lines = bodyText.split("\n").map(cleanCandidateLine).filter(Boolean);
 
-  console.log("PokemonCenter parser running...");
-  console.log("PokemonCenter lines preview:", lines.slice(0, 80));
+  debugLog("PokemonCenter parser running...");
+  debugLog("PokemonCenter lines preview:", lines.slice(0, 80));
 
   function isBadPokemonCenterLine(line) {
     const normalized = normalizeText(line);
@@ -966,7 +1074,7 @@ async function parsePokemonCenterEmail(
         bestProductLink
       );
 
-      console.log("PokemonCenter qty/price match:", productLine);
+      debugLog("PokemonCenter qty/price match:", productLine);
 
       return {
         group_id: connection.group_id,
@@ -1012,7 +1120,7 @@ async function parsePokemonCenterEmail(
       bestProductLink
     );
 
-    console.log("PokemonCenter fallback matched:", candidate);
+    debugLog("PokemonCenter fallback matched:", candidate);
 
     return {
       group_id: connection.group_id,
@@ -1028,7 +1136,7 @@ async function parsePokemonCenterEmail(
     };
   }
 
-  console.log("PokemonCenter parser failed.");
+  debugLog("PokemonCenter parser failed.");
   return null;
 }
 
@@ -1047,19 +1155,21 @@ async function parseOrderEmail(fullMessage, connection) {
 
   const retailer = detectRetailer(from, subject, bodyText);
 
-  console.log("Retailer detected:", retailer);
-  console.log("From:", from);
-  console.log("Subject:", subject);
+  debugLog("Retailer detected:", retailer);
+  debugLog("From:", from);
+  debugLog("Subject:", subject);
 
   if (!retailer) {
-    console.log("Skip reason: no retailer detected");
+    debugLog("Skip reason: no retailer detected");
     return null;
   }
 
-  const isTestSender = senderMatchesRetailer("Test", from);
+  const isTestSender = ENABLE_TEST_SENDERS
+    ? senderMatchesRetailer("Test", from)
+    : false;
 
   if (!isTestSender && !senderMatchesRetailer(retailer, from)) {
-    console.log("Skip reason: sender mismatch");
+    debugLog("Skip reason: sender mismatch");
     return null;
   }
 
@@ -1070,11 +1180,11 @@ async function parseOrderEmail(fullMessage, connection) {
   );
   const isShipping = isShippingOrTrackingEmail(retailer, subject, bodyText);
 
-  console.log("Initial confirmation result:", isInitialConfirmation);
-  console.log("Shipping filter result:", isShipping);
+  debugLog("Initial confirmation result:", isInitialConfirmation);
+  debugLog("Shipping filter result:", isShipping);
 
   if (!isInitialConfirmation) {
-    console.log("Skip reason: not initial order confirmation");
+    debugLog("Skip reason: not initial order confirmation");
     return null;
   }
 
@@ -1200,7 +1310,7 @@ async function checkYahooEmails(connection) {
       const lastUid = Number(connection.yahoo_last_uid || 0);
 
       if (!mailbox.exists) {
-        console.log(`Yahoo inbox empty for ${connection.email}`);
+        debugLog(`Yahoo inbox empty for ${connection.email}`);
         return;
       }
 
@@ -1221,7 +1331,7 @@ async function checkYahooEmails(connection) {
       }
 
       if (!messages.length) {
-        console.log(`No new Yahoo messages for ${connection.email}`);
+        debugLog(`No new Yahoo messages for ${connection.email}`);
         return;
       }
 
@@ -1308,7 +1418,7 @@ async function checkEmails() {
     try {
       if (connection.provider === "yahoo") {
         if (!connection.email || !connection.yahoo_app_password) {
-          console.log(
+          console.error(
             "Skipping Yahoo connection with missing credentials:",
             connection.id
           );
@@ -1328,15 +1438,18 @@ async function checkEmails() {
 
       const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
+      const gmailQuery =
+        '-in:sent newer_than:14d ("order" OR "thank you" OR "order summary" OR "pokemoncenter.com")';
+
       const res = await gmail.users.messages.list({
         userId: "me",
         labelIds: ["INBOX"],
-        q: '-in:sent newer_than:14d (subject:"thank you for your order" OR subject:"thanks for your order" OR subject:"thanks for shopping with us" OR subject:"here\\\'s your order" OR subject:"here’s your order" OR subject:"thanks for your delivery order" OR subject:"thank you for shopping at pokemoncenter.com" OR subject:"pokemoncenter.com" OR subject:"order #")',
+        q: gmailQuery,
         maxResults: 20,
       });
 
       const messages = res.data.messages || [];
-      console.log("Gmail messages found:", messages.length);
+      debugLog("Gmail messages found:", messages.length);
 
       for (const msg of messages) {
         const alreadyProcessed = await wasMessageProcessed(connection.id, msg.id);
