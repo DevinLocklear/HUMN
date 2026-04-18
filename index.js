@@ -55,11 +55,11 @@ const RANGE_CHOICES = [
 const commands = [
   new SlashCommandBuilder()
     .setName("help")
-    .setDescription("View Lumen commands and setup help"),
+    .setDescription("View HUMN commands and setup help"),
 
   new SlashCommandBuilder()
     .setName("setup")
-    .setDescription("Check your full Lumen setup status"),
+    .setDescription("Check your full HUMN setup status"),
 
   new SlashCommandBuilder()
     .setName("create-group")
@@ -629,7 +629,7 @@ async function buildCheckoutEmbed(event, discordUserId) {
       }
     )
     .setFooter({
-      text: "Lumen Beta • Real-Time Checkout Feed",
+      text: "HUMN Beta • Real-Time Checkout Feed",
       iconURL: "https://cdn-icons-png.flaticon.com/512/4712/4712027.png",
     });
 
@@ -649,7 +649,7 @@ function buildSuccessEmbed(title, description) {
     .setTitle(title)
     .setDescription(description)
     .setFooter({
-      text: "Lumen",
+      text: "HUMN",
       iconURL: "https://cdn-icons-png.flaticon.com/512/4712/4712027.png",
     });
 }
@@ -660,7 +660,7 @@ function buildErrorEmbed(message) {
     .setTitle("Action Failed")
     .setDescription(message)
     .setFooter({
-      text: "Lumen",
+      text: "HUMN",
       iconURL: "https://cdn-icons-png.flaticon.com/512/4712/4712027.png",
     });
 }
@@ -671,7 +671,7 @@ function buildAnalyticsEmbed({ title, description, fields }) {
     .setTitle(title)
     .setDescription(description)
     .setFooter({
-      text: "Lumen Analytics",
+      text: "HUMN Analytics",
       iconURL: "https://cdn-icons-png.flaticon.com/512/4712/4712027.png",
     });
 
@@ -684,8 +684,8 @@ function buildAnalyticsEmbed({ title, description, fields }) {
 
 function buildHelpEmbedForGuest() {
   return buildAnalyticsEmbed({
-    title: "📘 Lumen Help",
-    description: "Get started with Lumen",
+    title: "📘 HUMN Help",
+    description: "Get started with HUMN",
     fields: [
       {
         name: "Start Here",
@@ -711,7 +711,7 @@ function buildHelpEmbedForGuest() {
 
 function buildHelpEmbedForMember() {
   return buildAnalyticsEmbed({
-    title: "📘 Lumen Help • Member",
+    title: "📘 HUMN Help • Member",
     description: "Your personal commands and setup tools",
     fields: [
       {
@@ -738,7 +738,7 @@ function buildHelpEmbedForMember() {
 
 function buildHelpEmbedForOwner() {
   return buildAnalyticsEmbed({
-    title: "📘 Lumen Help • Owner",
+    title: "📘 HUMN Help • Owner",
     description: "Owner setup tools and group analytics",
     fields: [
       {
@@ -926,7 +926,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (!membership) {
         const embed = buildAnalyticsEmbed({
-          title: "🛠️ Lumen Setup",
+          title: "🛠️ HUMN Setup",
           description: "You are not in a group yet.",
           fields: [
             {
@@ -984,7 +984,7 @@ client.on("interactionCreate", async (interaction) => {
         nextSteps.push("Run `/connect-gmail` or `/connect-yahoo`");
       }
       if (!nextSteps.length) {
-        nextSteps.push("Everything looks good. You're ready to use Lumen.");
+        nextSteps.push("Everything looks good. You're ready to use HUMN.");
       }
 
       const providerLabel = emailConnection?.provider
@@ -993,7 +993,7 @@ client.on("interactionCreate", async (interaction) => {
         : null;
 
       const embed = buildAnalyticsEmbed({
-        title: "🛠️ Lumen Setup",
+        title: "🛠️ HUMN Setup",
         description: "Full setup health check",
         fields: [
           {
@@ -1405,7 +1405,7 @@ client.on("interactionCreate", async (interaction) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          content: "✅ Lumen webhook connected successfully.",
+          content: "✅ HUMN webhook connected successfully.",
         }),
       });
 
@@ -1500,7 +1500,7 @@ client.on("interactionCreate", async (interaction) => {
         "Connect Yahoo\n\n" +
         "1. Go here: https://login.yahoo.com/account/security\n" +
         "2. Click 'Generate App Password'\n" +
-        "3. Select 'Other App' → type 'Lumen'\n" +
+        "3. Select 'Other App' → type 'HUMN'\n" +
         "4. Copy the password\n" +
         "5. Run /save-yahoo email:your@yahoo.com app_password:YOUR_PASSWORD",
     });
