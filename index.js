@@ -566,7 +566,11 @@ client.on("interactionCreate", async (interaction) => {
         embeds: [buildAnalyticsEmbed({
           title: `📊 ${interaction.guild?.name || "Group"} Stats`,
           description: `${formatRangeLabel(range)} analytics snapshot${retailerFilter ? ` • Retailer: ${retailerFilter}` : ""}`,
-          fields: [{ name: "Dashboard", value: statsDashboard, inline: false }],
+          fields: [
+            { name: "Dashboard", value: statsDashboard, inline: false },
+            { name: "🥇 Top User", value: topUserId ? `<@${topUserId}>` : "None", inline: true },
+            { name: "👥 Unique Users", value: String(uniqueUsers), inline: true },
+          ],
         })],
       });
     } catch (err) {

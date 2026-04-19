@@ -77,7 +77,6 @@ function renderStatsDashboard({
     `${padRight("Spend", 14)} ${padLeft(formatMoney(totalSpend), 8)}`,
     `${padRight("Avg Order", 14)} ${padLeft(formatMoney(avgValue), 8)}`,
     `${padRight("Top Retailer", 14)} ${topRetailer}`,
-    `${padRight("Top User", 14)} ${topUserId ? `@${topUserId}` : "None"}`,
     "─".repeat(30),
     "RETAILER BREAKDOWN",
     retailerBreakdownText || "No retailer data",
