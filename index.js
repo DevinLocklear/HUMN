@@ -1,21 +1,7 @@
 "use strict";
 
-process.on("uncaughtException", (err) => {
-  process.stderr.write("UNCAUGHT EXCEPTION: " + err.stack + "\n");
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason) => {
-  process.stderr.write("UNHANDLED REJECTION: " + String(reason?.stack || reason) + "\n");
-  process.exit(1);
-});
-
-process.stderr.write("INDEX.JS LOADING...\n");
-
 require("dotenv").config();
-process.stderr.write("DOTENV OK\n");
 require("./server");
-process.stderr.write("SERVER OK\n");
 
 const {
   Client,
