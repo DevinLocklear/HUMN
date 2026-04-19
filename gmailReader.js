@@ -726,6 +726,10 @@ async function buildCheckoutEmbed(event) {
   const retailerLabel = normalizeRetailerName(event.retailer);
   return {
     color: 0x57f287,
+    author: {
+      name: "HUMN",
+      icon_url: "https://i.imgur.com/ywgtHOK.png",
+    },
     title: `Successful Checkout | ${retailerLabel}`,
     fields: [
       {

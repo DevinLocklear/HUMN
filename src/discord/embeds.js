@@ -42,6 +42,7 @@ function buildAnalyticsEmbed({ title, description, fields }) {
     .setColor(0x5865f2)
     .setTitle(title)
     .setDescription(description)
+    .setThumbnail(HUMN_ICON)
     .setFooter({ text: "HUMN Analytics", iconURL: HUMN_ICON });
   if (fields?.length) embed.addFields(fields);
   return embed;
