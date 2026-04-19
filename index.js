@@ -560,7 +560,18 @@ client.on("interactionCreate", async (interaction) => {
       const retailerBreakdownText = buildRetailerBreakdown(evList).slice(0, 5).map(([r, c]) => `${r}: ${c}`).join("\n") || "No retailer data";
       const latestEvent = evList[0];
 
-      const statsDashboard = renderStatsDashboard({ totalCheckouts, totalSpend, avgValue, memberCount: memberCount || 0, uniqueUsers, topRetailer, topUserId, retailerBreakdownText, latestEvent });
+      // Fetch top user display name so it shows inside the dashboard box
+      let topUserDisplay = "None";
+      if (topUserId) {
+        try {
+          const member = await interaction.guild?.members.fetch(topUserId);
+          topUserDisplay = member?.displayName || member?.user?.username || topUserId;
+        } catch {
+          topUserDisplay = topUserId;
+        }
+      }
+
+      const statsDashboard = renderStatsDashboard({ totalCheckouts, totalSpend, avgValue, memberCount: memberCount || 0, uniqueUsers, topRetailer, topUserDisplay, retailerBreakdownText, latestEvent });
 
       return interaction.editReply({
         embeds: [buildAnalyticsEmbed({
@@ -568,8 +579,6 @@ client.on("interactionCreate", async (interaction) => {
           description: `${formatRangeLabel(range)} analytics snapshot${retailerFilter ? ` • Retailer: ${retailerFilter}` : ""}`,
           fields: [
             { name: "Dashboard", value: statsDashboard, inline: false },
-            { name: "🥇 Top User", value: topUserId ? `<@${topUserId}>` : "None", inline: true },
-            { name: "👥 Unique Users", value: String(uniqueUsers), inline: true },
           ],
         })],
       });
