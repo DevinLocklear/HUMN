@@ -21,7 +21,6 @@ const { normalizeRetailerName, sumOrderTotals, averageOrderValue, buildRetailerB
 const { formatMoney, formatDateTime, shortenText, formatRangeLabel, renderStatsDashboard, renderTrendDashboard } = require("./src/analytics/render");
 const { buildSuccessEmbed, buildErrorEmbed, buildAnalyticsEmbed, buildCheckoutEmbed, buildHelpEmbedForGuest, buildHelpEmbedForMember, buildHelpEmbedForOwner } = require("./src/discord/embeds");
 const notify = require("./src/discord/notify");
-const { createSubscriptionCheckout, createBetaCheckout } = require("./src/stripe");
 const { getSubscriptionByGroupId, groupHasAccess, groupInGracePeriod, activateSubscription } = require("./src/db/subscriptions");
 
 // Bot owner ID — only this user can run /beta-activate
@@ -849,6 +848,7 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.editReply({ embeds: [buildSuccessEmbed("Already Subscribed", `Your group is on the **${existingSub.plan}** plan and active. Use \`/subscription\` to see details.`)] });
       }
 
+      const { createSubscriptionCheckout } = require('./src/stripe');
       const session = await createSubscriptionCheckout(membership.group_id, discordUserId);
 
       return interaction.editReply({

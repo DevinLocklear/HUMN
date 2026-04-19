@@ -178,7 +178,8 @@ app.post("/stripe/webhook", async (req, res) => {
 
   let event;
   try {
-    const { stripe } = require("./src/stripe");
+    const { getStripe } = require("./src/stripe");
+    const stripe = getStripe();
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
     log.error("Stripe webhook signature verification failed", { error: err.message });
