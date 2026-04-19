@@ -7,6 +7,9 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
+  SlashCommandBuilder,
+  REST,
+  Routes,
 } = require("discord.js");
 
 const { supabase, GMAIL_AUTH_BASE_URL, ENABLE_TEST_EVENT } = require("./src/config");
