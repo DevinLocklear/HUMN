@@ -12,6 +12,7 @@ const { supabase, oauth2Client, ENABLE_TEST_SENDERS } = require("./src/config");
 const { createLogger } = require("./src/logger");
 const { decrypt, isEncrypted } = require("./src/crypto");
 const notify = require("./src/discord/notify");
+const { groupHasAccess, groupInGracePeriod } = require("./src/db/subscriptions");
 const { getActiveConnections, updateTokens, updateYahooLastUid } = require("./src/db/connections");
 const { getGroupWebhook } = require("./src/db/groups");
 const { insertCheckoutEvent, getGroupSpendLast30Days } = require("./src/db/events");
@@ -776,6 +777,13 @@ async function sendWebhookWithRetry(url, payload, retries = 3) {
 }
 
 async function sendWebhookForEvent(groupId, event) {
+  // Gate: only send webhooks for groups with active subscriptions
+  const hasAccess = await groupHasAccess(groupId);
+  if (!hasAccess) {
+    log.warn("Webhook blocked — no active subscription", { groupId });
+    return;
+  }
+
   const { data: group, error } = await getGroupWebhook(groupId);
   if (error) return;
   if (!group?.discord_webhook_url) {

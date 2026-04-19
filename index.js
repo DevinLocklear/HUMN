@@ -21,6 +21,11 @@ const { normalizeRetailerName, sumOrderTotals, averageOrderValue, buildRetailerB
 const { formatMoney, formatDateTime, shortenText, formatRangeLabel, renderStatsDashboard, renderTrendDashboard } = require("./src/analytics/render");
 const { buildSuccessEmbed, buildErrorEmbed, buildAnalyticsEmbed, buildCheckoutEmbed, buildHelpEmbedForGuest, buildHelpEmbedForMember, buildHelpEmbedForOwner } = require("./src/discord/embeds");
 const notify = require("./src/discord/notify");
+const { createSubscriptionCheckout, createBetaCheckout } = require("./src/stripe");
+const { getSubscriptionByGroupId, groupHasAccess, groupInGracePeriod, activateSubscription } = require("./src/db/subscriptions");
+
+// Bot owner ID — only this user can run /beta-activate
+const BOT_OWNER_ID = process.env.BOT_OWNER_DISCORD_ID || "";
 
 const log = createLogger("bot");
 
@@ -115,6 +120,24 @@ const commands = [
     .addStringOption((o) => o.setName("app_password").setDescription("Yahoo app password").setRequired(true)),
   new SlashCommandBuilder().setName("status").setDescription("Check your email connection status"),
   new SlashCommandBuilder().setName("test-event").setDescription("Send a test checkout event"),
+
+  new SlashCommandBuilder()
+    .setName("subscribe")
+    .setDescription("Subscribe to HUMN — $350 setup + $50/month"),
+
+  new SlashCommandBuilder()
+    .setName("subscription")
+    .setDescription("Check your group subscription status"),
+
+  new SlashCommandBuilder()
+    .setName("beta-activate")
+    .setDescription("Grant beta access to a group (bot owner only)")
+    .addStringOption((o) =>
+      o.setName("group_id").setDescription("Group ID to activate").setRequired(true)
+    )
+    .addUserOption((o) =>
+      o.setName("user").setDescription("Group owner Discord user").setRequired(true)
+    ),
   new SlashCommandBuilder()
     .setName("stats").setDescription("View group analytics")
     .addStringOption((o) => o.setName("range").setDescription("Select time range").setRequired(true).addChoices(...RANGE_CHOICES))
@@ -808,6 +831,140 @@ client.on("interactionCreate", async (interaction) => {
     } catch (err) {
       log.error("/trend-analytics failed", err);
       return interaction.editReply({ embeds: [buildErrorEmbed("Failed to load trend analytics.")] });
+    }
+  }
+
+  // ── /subscribe ─────────────────────────────────────────────────────────────
+  if (commandName === "subscribe") {
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const { data: membership, error: membershipError } = await getMembershipByDiscordUserId(discordUserId);
+      if (membershipError) return interaction.editReply({ embeds: [buildErrorEmbed("Failed to find your membership.")] });
+      if (!membership) return interaction.editReply({ embeds: [buildErrorEmbed("You need to create a group first with `/create-group`.")] });
+      if (membership.role !== "owner") return interaction.editReply({ embeds: [buildErrorEmbed("Only the group owner can manage the subscription.")] });
+
+      // Check if already subscribed
+      const { data: existingSub } = await getSubscriptionByGroupId(membership.group_id);
+      if (existingSub && ["active", "trialing", "beta"].includes(existingSub.status)) {
+        return interaction.editReply({ embeds: [buildSuccessEmbed("Already Subscribed", `Your group is on the **${existingSub.plan}** plan and active. Use \`/subscription\` to see details.`)] });
+      }
+
+      const session = await createSubscriptionCheckout(membership.group_id, discordUserId);
+
+      return interaction.editReply({
+        embeds: [buildAnalyticsEmbed({
+          title: "🚀 Subscribe to HUMN",
+          description:
+            "**HUMN Pro** — $350 setup fee + $50/month\n\n" +
+            "Your setup fee covers your first month. Billing begins after 30 days.\n\n" +
+            `**[Click here to complete payment](${session.url})**\n\n` +
+            "Once payment is confirmed your group will be activated automatically.",
+          fields: [],
+        })],
+      });
+    } catch (err) {
+      log.error("/subscribe failed", err);
+      return interaction.editReply({ embeds: [buildErrorEmbed("Failed to create checkout session.")] });
+    }
+  }
+
+  // ── /subscription ──────────────────────────────────────────────────────────
+  if (commandName === "subscription") {
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const { data: membership, error: membershipError } = await getMembershipByDiscordUserId(discordUserId);
+      if (membershipError) return interaction.editReply({ embeds: [buildErrorEmbed("Failed to find your membership.")] });
+      if (!membership) return interaction.editReply({ embeds: [buildErrorEmbed("You are not in a group.")] });
+      if (membership.role !== "owner") return interaction.editReply({ embeds: [buildErrorEmbed("Only the group owner can view subscription details.")] });
+
+      const { data: sub } = await getSubscriptionByGroupId(membership.group_id);
+
+      if (!sub || sub.status === "inactive") {
+        return interaction.editReply({
+          embeds: [buildAnalyticsEmbed({
+            title: "💳 Subscription Status",
+            description: "Your group does not have an active subscription.\n\nRun `/subscribe` to get started.",
+            fields: [],
+          })],
+        });
+      }
+
+      const statusEmoji = {
+        active: "✅",
+        trialing: "🔄",
+        grace: "⚠️",
+        suspended: "❌",
+        beta: "🧪",
+        inactive: "❌",
+      }[sub.status] || "❓";
+
+      const periodEnd = sub.current_period_end
+        ? new Date(sub.current_period_end).toLocaleDateString()
+        : "N/A";
+
+      const graceEnd = sub.grace_period_end
+        ? new Date(sub.grace_period_end).toLocaleDateString()
+        : null;
+
+      return interaction.editReply({
+        embeds: [buildAnalyticsEmbed({
+          title: "💳 Subscription Status",
+          description: `${statusEmoji} **${sub.plan?.toUpperCase() || "Unknown"}** plan`,
+          fields: [
+            { name: "Status", value: `${statusEmoji} ${sub.status}`, inline: true },
+            { name: "Plan", value: sub.plan || "N/A", inline: true },
+            { name: "Period End", value: periodEnd, inline: true },
+            ...(graceEnd ? [{ name: "⚠️ Grace Period Ends", value: graceEnd, inline: true }] : []),
+          ],
+        })],
+      });
+    } catch (err) {
+      log.error("/subscription failed", err);
+      return interaction.editReply({ embeds: [buildErrorEmbed("Failed to load subscription status.")] });
+    }
+  }
+
+  // ── /beta-activate ─────────────────────────────────────────────────────────
+  if (commandName === "beta-activate") {
+    await interaction.deferReply({ ephemeral: true });
+
+    if (discordUserId !== BOT_OWNER_ID) {
+      return interaction.editReply({ embeds: [buildErrorEmbed("This command is restricted to the bot owner.")] });
+    }
+
+    const targetGroupId = interaction.options.getString("group_id");
+    const targetUser = interaction.options.getUser("user");
+
+    try {
+      const periodEnd = new Date();
+      periodEnd.setDate(periodEnd.getDate() + 30);
+
+      await activateSubscription(targetGroupId, targetUser.id, {
+        status: "beta",
+        plan: "beta",
+        periodEnd: periodEnd.toISOString(),
+        isBeta: true,
+      });
+
+      // DM the group owner to let them know
+      const { EmbedBuilder } = require("discord.js");
+      const embed = new EmbedBuilder()
+        .setColor(0x57f287)
+        .setTitle("🧪 HUMN Beta Access Activated")
+        .setDescription(
+          "You have been granted **30 days of free beta access** to HUMN.\n\n" +
+          "Your group is now fully active. Run `/setup` in your server to get started.\n\n" +
+          "At the end of your beta period, run `/subscribe` to continue with HUMN Pro."
+        )
+        .setFooter({ text: "HUMN Beta", iconURL: "https://i.imgur.com/ywgtHOK.png" });
+
+      await notify.sendDM(targetUser.id, embed);
+
+      log.info("Beta access granted", { groupId: targetGroupId, discordUserId: targetUser.id });
+      return interaction.editReply({ embeds: [buildSuccessEmbed("Beta Access Granted", `Beta access activated for <@${targetUser.id}> — 30 days from today.`)] });
+    } catch (err) {
+      log.error("/beta-activate failed", err);
+      return interaction.editReply({ embeds: [buildErrorEmbed("Failed to activate beta access.")] });
     }
   }
 });
