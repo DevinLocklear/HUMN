@@ -18,9 +18,7 @@ const PRICES = {
   BETA: "price_1TNvLeRtQY1gSYr0EBiN9w3l",         // $0 one-time
 };
 
-const BASE_URL = process.env.RAILWAY_PUBLIC_DOMAIN
-  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-  : "https://positive-passion-production.up.railway.app";
+const BASE_URL = process.env.APP_BASE_URL || "https://positive-passion-production.up.railway.app";
 
 const SUCCESS_URL = `${BASE_URL}/subscribe/success`;
 const CANCEL_URL = `${BASE_URL}/subscribe/cancel`;
