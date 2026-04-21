@@ -74,7 +74,8 @@ function buildCheckoutEmbed(event, discordUserId, { rank, spend }) {
       { name: "Quantity", value: String(event.quantity || 1), inline: true },
       { name: "Checkout Time", value: formatDateTime(event.created_at), inline: false },
       { name: "🏆 Rank (30d)", value: rank ? `#${rank}` : "N/A", inline: true },
-      { name: "💰 Spend (30d)", value: formatMoney(spend || 0), inline: true }
+      { name: "💰 Spend (30d)", value: formatMoney(spend || 0), inline: true },
+      { name: "\u200b", value: "[𝕏 @UseHUMN](https://x.com/UseHUMN) • [🌐 humnbot.com](https://www.humnbot.com)", inline: false }
     )
     .setFooter({ text: "HUMN Beta • Real-Time Checkout Feed", iconURL: HUMN_ICON });
 
