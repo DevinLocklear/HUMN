@@ -698,8 +698,26 @@ async function refreshAccessTokenIfNeeded(connection) {
     return { access_token: newAccessToken, refresh_token: newRefreshToken };
   } catch (err) {
     log.error("Token refresh failed", { connectionId: connection.id, error: err.message });
-    // Notify the user their Gmail connection needs to be re-authorized
-    await notify.sendGmailDisconnected(connection);
+
+    // Mark as disconnected so we stop retrying every 30s and only DM once
+    const { supabase } = require("./src/config");
+    const { data: current } = await supabase
+      .from("gmail_connections")
+      .select("status")
+      .eq("id", connection.id)
+      .maybeSingle();
+
+    if (current?.status !== "disconnected") {
+      await supabase
+        .from("gmail_connections")
+        .update({ status: "disconnected" })
+        .eq("id", connection.id);
+      await notify.sendGmailDisconnected(connection);
+      log.warn("Gmail connection marked disconnected — DM sent once", {
+        connectionId: connection.id,
+      });
+    }
+
     return { access_token: connection.access_token, refresh_token: connection.refresh_token };
   }
 }
