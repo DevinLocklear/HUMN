@@ -767,6 +767,7 @@ async function buildCheckoutEmbed(event) {
       { name: "User", value: `<@${event.discord_user_id}>`, inline: false },
       { name: "🏆 Rank (30d)", value: rank ? `#${rank}` : "N/A", inline: true },
       { name: "💰 Spend (30d)", value: formatMoney(spend || 0), inline: true },
+      { name: "​", value: "[𝕏 @UseHUMN](https://x.com/UseHUMN) • [🌐 humnbot.com](https://www.humnbot.com)", inline: false },
     ],
     footer: {
       text: `HUMN • v1.0 • ${formatDateTime(new Date())}`,

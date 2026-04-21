@@ -37,6 +37,12 @@ function buildErrorEmbed(message) {
     .setFooter({ text: "HUMN", iconURL: HUMN_ICON });
 }
 
+const SOCIAL_LINKS_FIELD = {
+  name: "​",
+  value: "[𝕏 @UseHUMN](https://x.com/UseHUMN) • [🌐 humnbot.com](https://www.humnbot.com)",
+  inline: false,
+};
+
 function buildAnalyticsEmbed({ title, description, fields }) {
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
@@ -45,6 +51,7 @@ function buildAnalyticsEmbed({ title, description, fields }) {
     .setThumbnail(HUMN_ICON)
     .setFooter({ text: "HUMN Analytics", iconURL: HUMN_ICON });
   if (fields?.length) embed.addFields(fields);
+  embed.addFields(SOCIAL_LINKS_FIELD);
   return embed;
 }
 
