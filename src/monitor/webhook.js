@@ -168,19 +168,21 @@ async function sendRestockAlert({ webhookUrl, product, status, previousStatus, p
   };
 
   try {
+    log.info("Firing webhook", { webhookUrl: webhookUrl.slice(0, 60), product: productName });
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
+    const body = await res.text();
     if (!res.ok) {
-      log.error("Webhook failed", { status: res.status, product: productName });
+      log.error("Webhook failed", { status: res.status, body, product: productName });
     } else {
-      log.info("Monitor alert sent", { product: productName, status, retailer: product.retailer });
+      log.info("Monitor alert sent ✅", { product: productName, status, retailer: product.retailer });
     }
   } catch (err) {
-    log.error("Webhook error", err);
+    log.error("Webhook error", { error: err.message, product: productName });
   }
 }
 
