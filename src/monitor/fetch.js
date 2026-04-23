@@ -78,43 +78,71 @@ function proxyFetch(targetUrl, options = {}, proxy = null) {
         path: `${url.hostname}:${targetPort}`,
         headers: {
           "Host": `${url.hostname}:${targetPort}`,
+          "Proxy-Connection": "Keep-Alive",
           ...(proxyAuth ? { "Proxy-Authorization": proxyAuth } : {}),
         },
-        timeout,
       };
 
       const connectReq = http.request(connectOptions);
-      connectReq.on("timeout", () => { connectReq.destroy(); reject(new Error("Proxy connect timed out")); });
-      connectReq.on("error", reject);
+      const connectTimer = setTimeout(() => {
+        connectReq.destroy();
+        reject(new Error("Proxy connect timed out"));
+      }, timeout);
+
+      connectReq.on("error", (err) => {
+        clearTimeout(connectTimer);
+        reject(err);
+      });
 
       connectReq.on("connect", (res, socket) => {
+        clearTimeout(connectTimer);
+
         if (res.statusCode !== 200) {
           socket.destroy();
           reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
           return;
         }
 
-        const reqOptions = {
-          hostname: url.hostname,
-          port: targetPort,
-          path: url.pathname + url.search,
-          method: options.method || "GET",
-          headers,
+        // Upgrade socket to TLS
+        const tlsSocket = require("tls").connect({
           socket,
-          agent: false,
-          timeout,
-        };
-
-        const req = https.request(reqOptions, (resp) => {
-          let data = "";
-          resp.on("data", chunk => data += chunk);
-          resp.on("end", () => resolve({ status: resp.statusCode, headers: resp.headers, body: data }));
+          servername: url.hostname,
+          rejectUnauthorized: false,
         });
 
-        req.on("error", reject);
-        req.on("timeout", () => { req.destroy(); reject(new Error("Request timed out")); });
-        if (options.body) req.write(options.body);
-        req.end();
+        tlsSocket.on("error", reject);
+
+        tlsSocket.on("secureConnect", () => {
+          const reqLines = [
+            `${options.method || "GET"} ${url.pathname + url.search} HTTP/1.1`,
+            `Host: ${url.hostname}`,
+            ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`),
+            "",
+            "",
+          ].join("\r\n");
+
+          tlsSocket.write(reqLines);
+
+          let rawData = "";
+          tlsSocket.on("data", chunk => rawData += chunk.toString());
+          tlsSocket.on("end", () => {
+            const headerEnd = rawData.indexOf("\r\n\r\n");
+            if (headerEnd === -1) { reject(new Error("Invalid HTTP response")); return; }
+            const headerSection = rawData.slice(0, headerEnd);
+            const body = rawData.slice(headerEnd + 4);
+            const statusMatch = headerSection.match(/HTTP\/\d\.?\d? (\d+)/);
+            const status = statusMatch ? parseInt(statusMatch[1]) : 0;
+            resolve({ status, headers: {}, body });
+          });
+        });
+
+        const reqTimer = setTimeout(() => {
+          tlsSocket.destroy();
+          reject(new Error("Request timed out"));
+        }, timeout);
+
+        tlsSocket.on("end", () => clearTimeout(reqTimer));
+        tlsSocket.on("error", () => clearTimeout(reqTimer));
       });
 
       connectReq.end();
