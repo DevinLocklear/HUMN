@@ -129,10 +129,29 @@ function sleep(ms) {
 }
 
 /**
+ * Test proxy connectivity
+ */
+async function testProxy() {
+  const { proxyFetch } = require("./fetch");
+  const { getProxy } = require("./proxy");
+  const proxy = getProxy("general");
+  if (!proxy) { log.warn("No proxy available for test"); return; }
+  try {
+    log.info("Testing proxy connectivity...", { host: proxy.host });
+    const result = await proxyFetch("https://httpbin.org/ip", {}, proxy);
+    log.info("Proxy test result", { status: result.status, body: result.body.slice(0, 100) });
+  } catch (err) {
+    log.error("Proxy test FAILED", { error: err.message });
+    log.warn("Falling back to direct requests (no proxy)");
+  }
+}
+
+/**
  * Start the monitor polling loop
  */
 function startMonitor() {
   log.info("HUMN Monitor starting...");
+  setTimeout(testProxy, 5000);
 
   // Initial poll after 10 seconds
   setTimeout(pollCycle, 10000);
