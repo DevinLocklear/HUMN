@@ -44,7 +44,7 @@ async function checkProduct(product) {
     });
 
     const url = `https://redsky.target.com/redsky_aggregations/v1/web/product_summary_with_fulfillment_v1?${params}`;
-    const proxy = getProxy("target");
+    const proxy = null; // Proxy disabled — Railway blocks port 3128
 
     const result = await proxyFetch(url, {
       headers: getHeaders("redsky.target.com"),
@@ -101,7 +101,7 @@ async function searchByKeyword(keyword) {
     });
 
     const url = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?${params}`;
-    const proxy = getProxy("target");
+    const proxy = null; // Proxy disabled — Railway blocks port 3128
 
     const result = await proxyFetch(url, {
       headers: getHeaders("redsky.target.com"),
