@@ -2,23 +2,13 @@
 
 /**
  * src/monitor/retailers/target.js
- * Monitors Target for restocks and early (pre-launch) products.
+ * Monitors Target for restocks using their current API.
  */
 
 const { createLogger } = require("../../logger");
 const { proxyFetch } = require("../fetch");
 
 const log = createLogger("monitor:target");
-
-function getHeaders() {
-  return {
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.target.com/",
-    "Origin": "https://www.target.com",
-    "Host": "redsky.target.com",
-  };
-}
 
 async function checkProduct(product) {
   try {
@@ -28,145 +18,150 @@ async function checkProduct(product) {
 
     const tcin = product.identifier;
 
-    // Current working Target API endpoint
-    const params = new URLSearchParams({
-      key: "9f36aeafbe60771e321a7cc95a78140772ab3e96",
-      tcins: tcin,
-      store_id: "911",
-      zip: "55413",
-      state: "MN",
-      latitude: "44.9934",
-      longitude: "-93.2774",
-      scheduled_delivery_store_id: "911",
-      required_store_id: "911",
-      visitor_id: "01800CC62F6C0201AF2C0E6116E9A0EF",
-      channel: "WEB",
-      page: `/p/A-${tcin}`,
-      pricing_store_id: "911",
-    });
-
-    const url = `https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?${params}`;
-
-    const result = await proxyFetch(url, {
-      headers: getHeaders(),
-      timeout: 20000,
-    }, null);
-
-    if (result.status !== 200) {
-      log.warn("Target API non-OK", { status: result.status, tcin });
-
-      // Try backup endpoint
-      return await checkProductBackup(tcin);
-    }
-
-    const data = JSON.parse(result.body);
-    const pd = data?.data?.product;
-    if (!pd) return await checkProductBackup(tcin);
-
-    const availability = pd?.children?.[0]?.availability || pd?.availability;
-    const price = pd?.price?.current_retail || pd?.children?.[0]?.price?.current_retail;
-    const productName = pd?.item?.product_description?.title;
-    const productUrl = `https://www.target.com/p/A-${tcin}`;
-
-    let status = "OUT_OF_STOCK";
-    let stockCount = null;
-
-    if (availability?.availability_status === "IN_STOCK") {
-      status = "IN_STOCK";
-      stockCount = availability?.available_to_promise_quantity || null;
-    } else if (availability?.availability_status === "READY_FOR_LAUNCH" || availability?.state === "READY_FOR_LAUNCH") {
-      status = "READY_FOR_LAUNCH";
-    }
-
-    return { status, price, stockCount, productName, productUrl };
+    // Try multiple API endpoints in order
+    const result = await tryEndpoints(tcin);
+    return result;
   } catch (err) {
     log.error("Target check failed", { product: product.identifier, error: err.message });
     return { status: "UNKNOWN" };
   }
 }
 
-/**
- * Backup endpoint using Target's inventory API
- */
-async function checkProductBackup(tcin) {
+async function tryEndpoints(tcin) {
+  const endpoints = [
+    // Endpoint 1: v3 pdp (simplest, most stable)
+    {
+      url: `https://redsky.target.com/v3/pdp/tcin/${tcin}?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&excludes=taxonomy,promotion,bulk_ship,rating_and_review_reviews,rating_and_review_statistics,question_answer_statistics`,
+      host: "redsky.target.com",
+    },
+    // Endpoint 2: product details v4
+    {
+      url: `https://redsky.target.com/v4/product/detail?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&tcin=${tcin}&store_id=911`,
+      host: "redsky.target.com",
+    },
+    // Endpoint 3: Target's public product page (scrape JSON-LD)
+    {
+      url: `https://www.target.com/p/A-${tcin}`,
+      host: "www.target.com",
+      scrape: true,
+    },
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const result = await proxyFetch(endpoint.url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Accept": endpoint.scrape ? "text/html,application/xhtml+xml" : "application/json",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Referer": "https://www.target.com/",
+          "Host": endpoint.host,
+        },
+        timeout: 20000,
+      }, null);
+
+      log.info("Target endpoint tried", { url: endpoint.url.slice(0, 80), status: result.status });
+
+      if (result.status !== 200) continue;
+
+      if (endpoint.scrape) {
+        return parseTargetPage(result.body, tcin);
+      }
+
+      const data = JSON.parse(result.body);
+      const parsed = parseTargetResponse(data, tcin);
+      if (parsed.status !== "UNKNOWN") return parsed;
+    } catch (err) {
+      log.warn("Target endpoint failed", { error: err.message });
+      continue;
+    }
+  }
+
+  return { status: "UNKNOWN" };
+}
+
+function parseTargetResponse(data, tcin) {
+  // Try various response shapes
+  const product = data?.data?.product || data?.product || data?.data?.product_summaries?.[0];
+  if (!product) return { status: "UNKNOWN" };
+
+  const avail =
+    product?.availability?.availability_status ||
+    product?.availability?.state ||
+    product?.children?.[0]?.availability?.availability_status ||
+    "OUT_OF_STOCK";
+
+  const price =
+    product?.price?.current_retail ||
+    product?.children?.[0]?.price?.current_retail ||
+    null;
+
+  const productName = product?.item?.product_description?.title || null;
+
+  const inStock = avail === "IN_STOCK";
+  const isLaunch = avail === "READY_FOR_LAUNCH";
+
+  return {
+    status: inStock ? "IN_STOCK" : isLaunch ? "READY_FOR_LAUNCH" : "OUT_OF_STOCK",
+    price,
+    productName,
+    productUrl: `https://www.target.com/p/A-${tcin}`,
+  };
+}
+
+function parseTargetPage(html, tcin) {
   try {
-    const url = `https://redsky.target.com/v3/pdp/tcin/${tcin}?excludes=taxonomy,price,promotion,bulk_ship,rating_and_review_reviews,rating_and_review_statistics,question_answer_statistics&key=9f36aeafbe60771e321a7cc95a78140772ab3e96`;
+    // Look for __TGT_DATA__ or __NEXT_DATA__ in the page
+    const tgtMatch = html.match(/__TGT_DATA__\s*=\s*(\{.*?\});/s);
+    const nextMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s);
 
-    const result = await proxyFetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "Referer": "https://www.target.com/",
-        "Host": "redsky.target.com",
-      },
-      timeout: 20000,
-    }, null);
+    if (nextMatch) {
+      const data = JSON.parse(nextMatch[1]);
+      const product = data?.props?.pageProps?.["@type"] === "Product" ? data?.props?.pageProps : null;
+      if (product) {
+        const inStock = product?.offers?.availability === "http://schema.org/InStock";
+        return {
+          status: inStock ? "IN_STOCK" : "OUT_OF_STOCK",
+          price: product?.offers?.price || null,
+          productName: product?.name || null,
+          productUrl: `https://www.target.com/p/A-${tcin}`,
+        };
+      }
+    }
 
-    if (result.status !== 200) return { status: "UNKNOWN" };
+    // Check for "In Stock" text as fallback
+    const inStockText = html.includes('"availability_status":"IN_STOCK"') || html.includes('"inStock":true');
+    const outOfStockText = html.includes('"availability_status":"OUT_OF_STOCK"');
 
-    const data = JSON.parse(result.body);
-    const product = data?.data?.product;
-    if (!product) return { status: "UNKNOWN" };
+    if (inStockText) return { status: "IN_STOCK", productUrl: `https://www.target.com/p/A-${tcin}` };
+    if (outOfStockText) return { status: "OUT_OF_STOCK", productUrl: `https://www.target.com/p/A-${tcin}` };
 
-    const avail = product?.availability?.availability_status;
-    const inStock = avail === "IN_STOCK";
-    const isLaunch = avail === "READY_FOR_LAUNCH";
-
-    return {
-      status: inStock ? "IN_STOCK" : isLaunch ? "READY_FOR_LAUNCH" : "OUT_OF_STOCK",
-      price: product?.price?.current_retail,
-      productName: product?.item?.product_description?.title,
-      productUrl: `https://www.target.com/p/A-${tcin}`,
-    };
+    return { status: "UNKNOWN" };
   } catch (err) {
-    log.error("Target backup check failed", { tcin, error: err.message });
     return { status: "UNKNOWN" };
   }
 }
 
-/**
- * Search Target by keyword
- */
 async function searchByKeyword(keyword) {
   try {
-    const params = new URLSearchParams({
-      key: "9f36aeafbe60771e321a7cc95a78140772ab3e96",
-      keyword,
-      channel: "WEB",
-      count: "5",
-      default_purchasability_filter: "false",
-      offset: "0",
-      visitor_id: "01800CC62F6C0201AF2C0E6116E9A0EF",
-      zip: "55413",
-    });
-
-    const url = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?${params}`;
-
+    const url = `https://www.target.com/s?searchTerm=${encodeURIComponent(keyword)}`;
     const result = await proxyFetch(url, {
       headers: {
-        "Accept": "application/json",
-        "Referer": "https://www.target.com/",
-        "Host": "redsky.target.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Host": "www.target.com",
       },
       timeout: 20000,
     }, null);
 
     if (result.status !== 200) return { status: "UNKNOWN" };
 
-    const data = JSON.parse(result.body);
-    const items = data?.data?.search?.products || [];
-    if (!items.length) return { status: "UNKNOWN" };
+    // Extract first TCIN from search results
+    const tcinMatch = result.body.match(/"tcin":"(\d+)"/);
+    if (!tcinMatch) return { status: "UNKNOWN" };
 
-    const first = items[0];
-    const tcin = first?.tcin;
-    const avail = first?.availability_status || first?.fulfillment?.shipping_options?.availability_status;
-
-    return {
-      status: avail === "IN_STOCK" ? "IN_STOCK" : avail === "READY_FOR_LAUNCH" ? "READY_FOR_LAUNCH" : "OUT_OF_STOCK",
-      price: first?.price?.current_retail,
-      productName: first?.item?.product_description?.title,
-      productUrl: `https://www.target.com/p/A-${tcin}`,
-      resolvedIdentifier: tcin,
-    };
+    const tcin = tcinMatch[1];
+    return await tryEndpoints(tcin);
   } catch (err) {
     log.error("Target search failed", { keyword, error: err.message });
     return { status: "UNKNOWN" };
