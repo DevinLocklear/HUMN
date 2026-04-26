@@ -30,15 +30,12 @@ function ua() {
 }
 
 async function fetchWithFallback(url, headers, timeout = 12000) {
-  // Try direct first
-  let result = await proxyFetch(url, { headers, timeout }, null);
+  // Use proxy first — Railway IP is rate limited by Target
+  let result = await proxyFetch(url, { headers, timeout }, getProxy());
   if (result && result.status === 200) return result;
 
-  // Use proxy if blocked
-  if (result && (result.status === 403 || result.status === 429 || result.status === 502)) {
-    result = await proxyFetch(url, { headers, timeout }, getProxy());
-  }
-
+  // Fallback to direct
+  result = await proxyFetch(url, { headers, timeout }, null);
   return result;
 }
 
