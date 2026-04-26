@@ -56,12 +56,23 @@ async function searchTarget(keyword) {
     });
 
     const url = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?${params}`;
-    const proxy = getProxy("target");
 
-    const result = await proxyFetch(url, {
+    const webshareProxy = {
+      host: process.env.PROXY_HOST || "p.webshare.io",
+      port: parseInt(process.env.PROXY_PORT || "80"),
+      user: process.env.PROXY_USER || "xnqyxvyg-GB-1",
+      pass: process.env.PROXY_PASS || "j2prfly8xpvf",
+    };
+
+    let result = await proxyFetch(url, {
       headers: TARGET_HEADERS,
       timeout: 10000,
-    }, proxy);
+    }, webshareProxy);
+
+    // Fallback to direct if proxy fails
+    if (!result || result.status === 0 || result.status >= 500) {
+      result = await proxyFetch(url, { headers: TARGET_HEADERS, timeout: 10000 }, null);
+    }
 
     if (result.status !== 200) {
       log.warn("Target search non-OK", { keyword, status: result.status });
