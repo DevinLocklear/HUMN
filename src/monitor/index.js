@@ -101,7 +101,47 @@ async function checkProduct(product) {
 }
 
 /**
+ * Determine polling tier based on product status and last checked time
+ * Tier 1 (hot): 30s — recently changed or null status
+ * Tier 2 (warm): 5min — out of stock but checked recently
+ * Tier 3 (cold): 30min — stable out of stock for a while
+ */
+/**
+ * Is it currently peak restock hours?
+ * Target restocks: 12 AM - 8 AM EST
+ * Walmart restocks: 12 AM - 6 AM EST
+ */
+function isPeakHours() {
+  const now = new Date();
+  // Convert to EST
+  const estHour = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getHours();
+  return estHour >= 0 && estHour < 8;
+}
+
+function getProductTier(product) {
+  // During peak hours — everything is hot
+  if (isPeakHours()) return 1;
+
+  const now = Date.now();
+  const lastChecked = product.last_checked_at ? new Date(product.last_checked_at).getTime() : 0;
+  const minutesSinceCheck = (now - lastChecked) / 60000;
+
+  // Never checked or status is null — hot
+  if (!product.last_checked_at || !product.last_status) return 1;
+
+  // In stock or ready for launch — always hot
+  if (product.last_status === "IN_STOCK" || product.last_status === "READY_FOR_LAUNCH") return 1;
+
+  // Status recently changed — warm
+  if (minutesSinceCheck < 30) return 2;
+
+  // Stable out of stock — cold
+  return 3;
+}
+
+/**
  * Run one full poll cycle across all active products
+ * Uses tiered polling to save bandwidth
  */
 async function pollCycle() {
   if (isRunning) {
@@ -110,20 +150,51 @@ async function pollCycle() {
   }
 
   isRunning = true;
-  const products = await getAllActiveProducts();
+  const allProducts = await getAllActiveProducts();
+
+  if (!allProducts.length) {
+    isRunning = false;
+    return;
+  }
+
+  const now = Date.now();
+
+  // Filter products based on tier timing
+  const products = allProducts.filter(product => {
+    const tier = getProductTier(product);
+    const lastChecked = product.last_checked_at ? new Date(product.last_checked_at).getTime() : 0;
+    const secondsSince = (now - lastChecked) / 1000;
+
+    if (tier === 1) return secondsSince >= 30;   // Check every 30s
+    if (tier === 2) return secondsSince >= 300;  // Check every 5min
+    if (tier === 3) return secondsSince >= 1800; // Check every 30min
+    return true;
+  });
+
+  const hot = allProducts.filter(p => getProductTier(p) === 1).length;
+  const warm = allProducts.filter(p => getProductTier(p) === 2).length;
+  const cold = allProducts.filter(p => getProductTier(p) === 3).length;
 
   if (!products.length) {
     isRunning = false;
     return;
   }
 
-  log.info("Monitor poll cycle started", { count: products.length });
+  log.info("Monitor poll cycle started", { 
+    checking: products.length, 
+    total: allProducts.length,
+    hot, warm, cold 
+  });
 
-  // Check ALL products in parallel — instant detection
-  // Each product has its own 15s timeout so nothing blocks
-  await Promise.all(products.map(product => checkProduct(product)));
+  // Check due products in parallel batches of 10
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < products.length; i += BATCH_SIZE) {
+    const batch = products.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(product => checkProduct(product)));
+    if (i + BATCH_SIZE < products.length) await sleep(500);
+  }
 
-  log.info("Monitor poll cycle complete", { count: products.length });
+  log.info("Monitor poll cycle complete", { checked: products.length });
   isRunning = false;
 }
 
