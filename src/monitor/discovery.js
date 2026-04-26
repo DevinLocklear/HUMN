@@ -35,7 +35,12 @@ const TARGET_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9",
   "Referer": "https://www.target.com/",
   "Host": "redsky.target.com",
+  "sec-ch-ua": '"Chromium";v="122"',
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "same-site",
 };
+
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 /**
  * Search Target for Pokemon TCG products and return TCINs
@@ -48,11 +53,15 @@ async function searchTarget(keyword) {
       channel: "WEB",
       count: "24",
       default_purchasability_filter: "false",
+      include_sponsored: "true",
       offset: "0",
+      page: `/s/${encodeURIComponent(keyword)}`,
+      platform: "desktop",
+      pricing_store_id: "911",
+      scheduled_delivery_store_id: "911",
+      store_id: "911",
       visitor_id: "01800CC62F6C0201AF2C0E6116E9A0EF",
       zip: "55413",
-      store_id: "911",
-      pricing_store_id: "911",
     });
 
     const url = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?${params}`;
