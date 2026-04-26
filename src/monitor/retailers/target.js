@@ -92,7 +92,8 @@ async function checkByTcin(tcin) {
     else if (shipStatus === "READY_FOR_LAUNCH" || availState === "READY_FOR_LAUNCH") status = "READY_FOR_LAUNCH";
 
     const price = pd?.price?.current_retail || null;
-    const productName = pd?.item?.product_description?.title || null;
+    const rawName = pd?.item?.product_description?.title || null;
+    const productName = rawName ? rawName.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code))).replace(/&amp;/g, '&').replace(/&quot;/g, '"') : null;
     const productUrl = `https://www.target.com/p/A-${tcin}`;
     const stockCount = shipping?.available_to_promise_quantity || null;
     const cartLimit = shipping?.purchase_limit || null;
