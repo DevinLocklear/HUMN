@@ -100,7 +100,7 @@ async function checkByTcin(tcin) {
     const images = pd?.item?.enrichment?.images;
     const imageUrl = images?.primary_image_url || null;
 
-    log.info("Target product checked", { tcin, status, productName: productName?.slice(0, 50) });
+    log.info("Target product checked", { tcin, status, productName: productName?.slice(0, 50), imageUrl, price });
 
     return { status, price, stockCount, cartLimit, productName, productUrl, imageUrl };
   } catch (err) {
