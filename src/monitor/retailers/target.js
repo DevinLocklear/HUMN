@@ -91,22 +91,32 @@ async function checkByTcin(tcin) {
     if (shipStatus === "IN_STOCK" || availState === "IN_STOCK") status = "IN_STOCK";
     else if (shipStatus === "READY_FOR_LAUNCH" || availState === "READY_FOR_LAUNCH") status = "READY_FOR_LAUNCH";
 
-    const price = pd?.price?.current_retail || null;
+    // Fetch full product details for price and image
+    let price = pd?.price?.current_retail || null;
+    let imageUrl2 = null;
+    try {
+      const detailUrl = `https://redsky.target.com/v3/pdp/tcin/${tcin}?excludes=taxonomy,promotion,bulk_ship,rating_and_review_reviews,rating_and_review_statistics,question_answer_statistics&key=ff457966e64d5e877fdbad070f276d18ecec4a01`;
+      const detailResult = await fetchWithFallback(detailUrl, {
+        "User-Agent": ua(),
+        "Accept": "application/json",
+        "Referer": "https://www.target.com/",
+        "Host": "redsky.target.com",
+      }, 8000);
+      if (detailResult?.status === 200) {
+        const detail = JSON.parse(detailResult.body)?.data?.product;
+        if (!price) price = detail?.price?.current_retail || null;
+        const img = detail?.item?.enrichment?.images?.primary_image_url;
+        if (img) imageUrl2 = img;
+      }
+    } catch (e) { /* detail fetch failed */ }
     const rawName = pd?.item?.product_description?.title || null;
     const productName = rawName ? rawName.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code))).replace(/&amp;/g, '&').replace(/&quot;/g, '"') : null;
     const productUrl = `https://www.target.com/p/A-${tcin}`;
     const stockCount = shipping?.available_to_promise_quantity || null;
     const cartLimit = shipping?.purchase_limit || null;
-    // Extract image from product description images array
-    const productImages = pd?.item?.product_description?.images;
-    const imageBase = productImages?.base_url;
-    const imagePrimary = productImages?.primary;
-    const imageUrl = (imageBase && imagePrimary)
-      ? `${imageBase}${imagePrimary}?wid=400&hei=400&fmt=pjpeg`
-      : null;
+    const imageUrl = imageUrl2;
 
-    log.info("Target image debug2", { tcin, imageUrl, productImages: JSON.stringify(productImages)?.slice(0, 200) });
-    log.info("Target product checked", { tcin, status, productName: productName?.slice(0, 50), imageUrl, price });
+    log.info("Target product checked", { tcin, status, productName: productName?.slice(0, 50) });
 
     return { status, price, stockCount, cartLimit, productName, productUrl, imageUrl };
   } catch (err) {
