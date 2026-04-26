@@ -47,24 +47,8 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
  */
 async function searchTarget(keyword) {
   try {
-    const params = new URLSearchParams({
-      key: "ff457966e64d5e877fdbad070f276d18ecec4a01",
-      keyword,
-      channel: "WEB",
-      count: "24",
-      default_purchasability_filter: "false",
-      include_sponsored: "true",
-      offset: "0",
-      page: `/s/${encodeURIComponent(keyword)}`,
-      platform: "desktop",
-      pricing_store_id: "911",
-      scheduled_delivery_store_id: "911",
-      store_id: "911",
-      visitor_id: "01800CC62F6C0201AF2C0E6116E9A0EF",
-      zip: "55413",
-    });
-
-    const url = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?${params}`;
+    // Use Target's main search page — more reliable than redsky API
+    const url = `https://www.target.com/s?searchTerm=${encodeURIComponent(keyword)}&category=5xt1a&type=products`;
 
     const webshareProxy = {
       host: process.env.PROXY_HOST || "p.webshare.io",
@@ -73,39 +57,48 @@ async function searchTarget(keyword) {
       pass: process.env.PROXY_PASS || "j2prfly8xpvf",
     };
 
-    let result = await proxyFetch(url, {
-      headers: TARGET_HEADERS,
-      timeout: 10000,
-    }, webshareProxy);
+    const headers = {
+      "User-Agent": UA,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://www.target.com/",
+      "Host": "www.target.com",
+    };
 
-    // Fallback to direct if proxy fails
-    if (!result || result.status === 0 || result.status >= 500) {
-      result = await proxyFetch(url, { headers: TARGET_HEADERS, timeout: 10000 }, null);
+    let result = await proxyFetch(url, { headers, timeout: 15000 }, webshareProxy);
+
+    if (!result || result.status !== 200) {
+      result = await proxyFetch(url, { headers, timeout: 15000 }, null);
     }
 
-    if (result.status !== 200) {
-      log.warn("Target search non-OK", { keyword, status: result.status });
+    if (!result || result.status !== 200) {
+      log.warn("Target search non-OK", { keyword, status: result?.status });
       return [];
     }
 
-    const data = JSON.parse(result.body);
-    const items = data?.data?.search?.products || [];
+    // Extract all TCINs from the page HTML
+    const tcinMatches = result.body.matchAll(/"tcin":"(\d{7,12})"/g);
+    const tcins = new Set();
+    const products = [];
 
-    return items.map(item => ({
-      tcin: item?.tcin,
-      name: item?.item?.product_description?.title,
-      price: item?.price?.current_retail,
-      status: item?.availability_status || item?.fulfillment?.shipping_options?.availability_status || "UNKNOWN",
-      url: item?.tcin ? `https://www.target.com/p/A-${item.tcin}` : null,
-      seller: item?.item?.seller?.name || item?.fulfillment?.shipping_options?.fulfillment_type || "",
-    })).filter(p => {
-      if (!p.tcin) return false;
-      // Skip 3rd party / marketplace sellers
-      const s = (p.seller || "").toLowerCase();
-      if (s === "marketplace" || s === "3p") return false;
-      if (p.seller && s !== "target" && s !== "") return false;
-      return true;
-    });
+    for (const match of tcinMatches) {
+      const tcin = match[1];
+      if (!tcins.has(tcin)) {
+        tcins.add(tcin);
+        // Try to extract product name near this TCIN
+        const idx = result.body.indexOf(match[0]);
+        const nearby = result.body.slice(Math.max(0, idx - 500), idx + 500);
+        const nameMatch = nearby.match(/"title":"([^"]{5,150})"/);
+        products.push({
+          tcin,
+          name: nameMatch ? nameMatch[1] : null,
+          url: `https://www.target.com/p/A-${tcin}`,
+        });
+      }
+    }
+
+    log.info("Target search found products", { keyword, count: products.length });
+    return products;
   } catch (err) {
     log.warn("Target search failed", { keyword, error: err.message });
     return [];
