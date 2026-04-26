@@ -45,7 +45,11 @@ async function checkProduct(product) {
   }
 
   try {
-    const result = await retailerModule.checkProduct(product);
+    // Hard 15s timeout per product — prevents one product from blocking the whole cycle
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Product check timed out")), 15000)
+    );
+    const result = await Promise.race([retailerModule.checkProduct(product), timeoutPromise]);
 
     if (result.status === "UNKNOWN") return;
 
