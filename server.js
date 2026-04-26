@@ -323,7 +323,9 @@ app.listen(PORT, () => {
 if (process.env.ENABLE_MONITOR !== 'false') {
   try {
     const { startMonitor } = require('./src/monitor');
+    const { startDiscovery } = require('./src/monitor/discovery');
     startMonitor();
+    startDiscovery();
   } catch (err) {
     log.warn('Monitor failed to start: ' + err.message);
   }
