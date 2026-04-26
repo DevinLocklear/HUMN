@@ -119,10 +119,12 @@ async function pollCycle() {
 
   log.info("Monitor poll cycle started", { count: products.length });
 
-  // Check products with small delays to avoid rate limiting
-  for (const product of products) {
-    await checkProduct(product);
-    await sleep(500); // 500ms between each check
+  // Check products in parallel batches of 5 — much faster than sequential
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < products.length; i += BATCH_SIZE) {
+    const batch = products.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(product => checkProduct(product)));
+    await sleep(1000); // 1 second between batches
   }
 
   log.info("Monitor poll cycle complete", { count: products.length });
@@ -142,10 +144,10 @@ function startMonitor() {
   // Initial poll after 10 seconds
   setTimeout(pollCycle, 10000);
 
-  // Poll every 45 seconds — gives enough time for 10+ products to check
-  pollTimer = setInterval(pollCycle, 45 * 1000);
+  // Poll every 3 minutes — gives enough time for 271 products in parallel batches
+  pollTimer = setInterval(pollCycle, 3 * 60 * 1000);
 
-  log.info("HUMN Monitor running — polling every 45 seconds");
+  log.info("HUMN Monitor running — polling every 3 minutes (parallel batches of 5)");
 }
 
 /**
