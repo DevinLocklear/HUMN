@@ -50,7 +50,8 @@ async function checkProduct(product) {
     const shouldAlert =
       (previousStatus !== "IN_STOCK" && newStatus === "IN_STOCK") ||
       (previousStatus === null && newStatus === "READY_FOR_LAUNCH") ||
-      (previousStatus === "UNKNOWN" && newStatus === "IN_STOCK");
+      (previousStatus === "UNKNOWN" && newStatus === "IN_STOCK") ||
+      (previousStatus !== "QUEUE" && newStatus === "QUEUE");
 
     if (shouldAlert && product.webhook_url) {
       log.info("Status changed — firing alert", {
@@ -73,6 +74,8 @@ async function checkProduct(product) {
         stockCount: result.stockCount,
         cartLimit: result.cartLimit,
         imageUrl: result.imageUrl || null,
+        offerId: result.offerId || null,
+        seller: result.seller || null,
       });
     }
   } catch (err) {

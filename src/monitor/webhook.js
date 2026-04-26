@@ -59,7 +59,7 @@ function getAppUrl(retailer, identifier, productUrl) {
   return productUrl || null;
 }
 
-async function sendRestockAlert({ webhookUrl, product, status, previousStatus, price, stockCount, cartLimit, imageUrl }) {
+async function sendRestockAlert({ webhookUrl, product, status, previousStatus, price, stockCount, cartLimit, imageUrl, offerId, seller }) {
   const retailerKey = getRetailerKey(product.retailer);
   const color = RETAILER_COLORS[retailerKey] || 0xc45aff;
 
@@ -67,11 +67,14 @@ async function sendRestockAlert({ webhookUrl, product, status, previousStatus, p
   const isNewLaunch = (previousStatus === null || previousStatus === "UNKNOWN") && status === "IN_STOCK";
   const isEarlyAlert = status === "READY_FOR_LAUNCH";
 
+  const isQueue = status === "QUEUE";
   let type = "Restock";
   if (isNewLaunch) type = "New Product";
   if (isEarlyAlert) type = "Coming Soon";
+  if (isQueue) type = "Queue Drop";
 
-  const productName = product.product_name || "Unknown Product";
+  const isQueueDrop = status === "QUEUE";
+  const productName = (isQueueDrop ? "[Queue Up] " : "") + (product.product_name || "Unknown Product");
   const identifier = product.identifier;
   const productUrl = product.product_url || "";
 
@@ -87,6 +90,7 @@ async function sendRestockAlert({ webhookUrl, product, status, previousStatus, p
   // Build links
   const links = [];
   if (cartUrl) links.push(`[Cart](${cartUrl})`);
+  if (retailerKey === "walmart") links.push(`[Checkout](https://www.walmart.com/account/checkout)`);
   if (appUrl) links.push(`[Open in App](${appUrl})`);
   if (loginUrl) links.push(`[Login](${loginUrl})`);
   links.push(`[eBay](${ebayUrl})`);
@@ -104,7 +108,7 @@ async function sendRestockAlert({ webhookUrl, product, status, previousStatus, p
       inline: true,
     },
     {
-      name: "TCIN",
+      name: "TCIN / PID",
       value: `\`${identifier}\``,
       inline: true,
     },
@@ -130,6 +134,22 @@ async function sendRestockAlert({ webhookUrl, product, status, previousStatus, p
     fields.push({
       name: "Cart Limit",
       value: `${cartLimit}`,
+      inline: true,
+    });
+  }
+
+  if (offerId) {
+    fields.push({
+      name: "Offer Id",
+      value: `\`${offerId}\``,
+      inline: true,
+    });
+  }
+
+  if (seller) {
+    fields.push({
+      name: "Seller",
+      value: seller,
       inline: true,
     });
   }
