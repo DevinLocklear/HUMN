@@ -34,8 +34,16 @@ function getHeaders() {
     "User-Agent": ua,
     "Accept": "application/json",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://www.target.com/",
     "Host": "redsky.target.com",
+    "Origin": "https://www.target.com",
+    "sec-ch-ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
   };
 }
 
